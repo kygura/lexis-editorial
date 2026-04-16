@@ -193,12 +193,11 @@ PROVIDER_REGISTRY: dict[str, ProviderConfig] = {
         default_model_env="DEFAULT_ANTHROPIC_MODEL",
         fallback_model="claude-sonnet-4-6",
         model_aliases={
-            "claude-opus-4-7": [
-                "claude-opus-4-7",
+            "claude-opus-4-6": [
                 "claude-opus-4-6",
                 "claude-opus-4-1-20250805",
             ],
-            "claude-opus-4-6": [
+            "claude-opus-4-6-latest": [
                 "claude-opus-4-6",
                 "claude-opus-4-1-20250805",
             ],
@@ -207,6 +206,10 @@ PROVIDER_REGISTRY: dict[str, ProviderConfig] = {
                 "claude-opus-4-1-20250805",
             ],
             "claude-sonnet-4-6": [
+                "claude-sonnet-4-6",
+                "claude-sonnet-4-20250514",
+            ],
+            "claude-sonnet-4-6-latest": [
                 "claude-sonnet-4-6",
                 "claude-sonnet-4-20250514",
             ],
