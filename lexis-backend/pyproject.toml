@@ -10,6 +10,7 @@ python = "^3.12"
 fastapi = {extras = ["standard"], version = "^0.135.3"}
 psycopg = {extras = ["binary"], version = "^3.3.3"}
 openai = "^2.31.0"
+anthropic = "^0.95.0"
 python-dotenv = "^1.2.2"
 
 
