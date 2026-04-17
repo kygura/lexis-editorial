@@ -152,7 +152,6 @@ async def stream_openai_completion(
     client = AsyncOpenAI(api_key=api_key)
     stream = await client.chat.completions.create(
         model=model,
-        max_completion_tokens=100000,
         temperature=temperature,
         stream=True,
         messages=[
@@ -251,7 +250,7 @@ async def analyze(payload: AnalyzeRequest):
         return StreamingResponse(short_text_stream(), media_type="text/event-stream")
 
     system_prompt = build_system_prompt(payload.style_directive)
-    user_prompt = f'Analyze this text:\n\n"{text}"'
+    user_prompt = f'\n\n"{text}"'
 
     async def stream_response():
         try:
