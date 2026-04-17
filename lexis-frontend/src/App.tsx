@@ -285,7 +285,7 @@ function App() {
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [keysOpen, setKeysOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<ProviderId>("openai");
-  const [selectedModel, setSelectedModel] = useState(defaultModelFor("openai"));
+  const [selectedModel, setSelectedModel] = useState<string>(defaultModelFor("openai"));
   const [temperature, setTemperature] = useState(defaultTemperatureForModel("openai", defaultModelFor("openai")));
   const [providerApiKeys, setProviderApiKeys] = useState<ProviderKeyMap>(emptyProviderKeys());
   const abortRef = useRef<AbortController | null>(null);
@@ -294,7 +294,7 @@ function App() {
   const keysRef = useRef<HTMLDivElement | null>(null);
   const styleRef = useRef("");
   const providerRef = useRef<ProviderId>("openai");
-  const modelRef = useRef(defaultModelFor("openai"));
+  const modelRef = useRef<string>(defaultModelFor("openai"));
   const temperatureRef = useRef(defaultTemperatureForModel("openai", defaultModelFor("openai")));
   const apiKeyRef = useRef("");
   const cachedResultRef = useRef<AnalysisResult | null>(null);
@@ -365,7 +365,7 @@ function App() {
   }, [providerApiKeys]);
 
   useEffect(() => {
-    const availableModels = MODEL_OPTIONS[selectedProvider].map((option) => option.value);
+    const availableModels: string[] = MODEL_OPTIONS[selectedProvider].map((option) => option.value);
     if (!availableModels.includes(selectedModel)) {
       const fallbackModel = defaultModelFor(selectedProvider);
       setSelectedModel(fallbackModel);
