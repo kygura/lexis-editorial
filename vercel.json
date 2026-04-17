@@ -1,0 +1,12 @@
+{
+  "experimentalServices": {
+    "web": {
+      "entrypoint": "lexis-frontend",
+      "routePrefix": "/"
+    },
+    "api": {
+      "entrypoint": "lexis-backend/app/main.py",
+      "routePrefix": "/api"
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? "/api" : "http://localhost:8000");
 const DEBOUNCE_MS = 900;
 const MIN_LENGTH = 8;
 const SIMILARITY_THRESHOLD = 0.85;
@@ -11,25 +11,27 @@ const STORAGE_KEYS = {
   style: "lexis-style-directive",
   provider: "lexis-provider",
   model: "lexis-model",
-  apiKey: "lexis-api-key",
+  temperature: "lexis-temperature",
+  apiKeys: "lexis-api-keys",
 } as const;
 
 const MODEL_OPTIONS = {
   openai: [
-    { value: "gpt-5.4", label: "GPT-5.4" },
-    { value: "gpt-4.1", label: "GPT-4.1" },
-    { value: "gpt-4o", label: "GPT-4o" },
+    { value: "gpt-5.4", label: "GPT-5.4", defaultTemperature: 0.7 },
+    { value: "gpt-4.1", label: "GPT-4.1", defaultTemperature: 0.7 },
+    { value: "gpt-4o", label: "GPT-4o", defaultTemperature: 0.7 },
   ],
   anthropic: [
-    { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-    { value: "claude-opus-4-6", label: "Claude Opus 4.6" },
-    { value: "claude-opus-4-1-20250805", label: "Claude Opus 4.1" },
-    { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
-    { value: "claude-3-7-sonnet-latest", label: "Claude 3.7 Sonnet" },
+    { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", defaultTemperature: 0.7 },
+    { value: "claude-opus-4-6", label: "Claude Opus 4.6", defaultTemperature: 0.7 },
+    { value: "claude-opus-4-1-20250805", label: "Claude Opus 4.1", defaultTemperature: 0.7 },
+    { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4", defaultTemperature: 0.7 },
+    { value: "claude-3-7-sonnet-latest", label: "Claude 3.7 Sonnet", defaultTemperature: 0.7 },
   ],
 } as const;
 
 type ProviderId = keyof typeof MODEL_OPTIONS;
+type ProviderKeyMap = Record<ProviderId, string>;
 
 interface RawChange {
   original: string;
@@ -87,13 +89,18 @@ function textSimilarity(a: string, b: string): number {
   return (2.0 * matches) / (longer.length + shorter.length - 2 * (windowSize - 1));
 }
 
-function useDebounce(value: string, delay: number) {
+function useDebounce<T>(value: T, delay: number) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
     const t = setTimeout(() => setDebounced(value), delay);
     return () => clearTimeout(t);
   }, [value, delay]);
   return debounced;
+}
+
+function clampTemperature(value: number) {
+  if (Number.isNaN(value)) return 0.7;
+  return Math.min(2, Math.max(0, value));
 }
 
 function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number) {
@@ -227,12 +234,10 @@ function applyChangeToggles(rewrite: string, changes: SanitizedChange[], toggled
   return nextRewrite;
 }
 
-function modelOptionsFor(provider: ProviderId, currentModel: string) {
-  const options = [...MODEL_OPTIONS[provider]];
-  if (currentModel && !options.some((option) => option.value === currentModel)) {
-    options.unshift({ value: currentModel, label: `${currentModel} (saved)` });
-  }
-  return options;
+function allModelOptions() {
+  return (Object.entries(MODEL_OPTIONS) as Array<[ProviderId, (typeof MODEL_OPTIONS)[ProviderId]]>).flatMap(
+    ([provider, options]) => options.map((option) => ({ ...option, provider })),
+  );
 }
 
 function defaultModelFor(provider: ProviderId) {
@@ -241,6 +246,28 @@ function defaultModelFor(provider: ProviderId) {
 
 function normalizeProvider(value: string | null): ProviderId {
   return value === "anthropic" ? "anthropic" : "openai";
+}
+
+function defaultTemperatureForModel(provider: ProviderId, model: string) {
+  const option = MODEL_OPTIONS[provider].find((candidate) => candidate.value === model);
+  return clampTemperature(option?.defaultTemperature ?? 0.7);
+}
+
+function emptyProviderKeys(): ProviderKeyMap {
+  return {
+    openai: "",
+    anthropic: "",
+  };
+}
+
+function normalizeProviderKeys(value: unknown): ProviderKeyMap {
+  const empty = emptyProviderKeys();
+  if (!value || typeof value !== "object") return empty;
+  return {
+    openai: typeof (value as ProviderKeyMap).openai === "string" ? (value as ProviderKeyMap).openai : "",
+    anthropic:
+      typeof (value as ProviderKeyMap).anthropic === "string" ? (value as ProviderKeyMap).anthropic : "",
+  };
 }
 
 function App() {
@@ -255,14 +282,20 @@ function App() {
   const [toggledChanges, setToggledChanges] = useState<Set<string>>(new Set());
   const [styleDirective, setStyleDirective] = useState("");
   const [styleOpen, setStyleOpen] = useState(false);
+  const [selectorOpen, setSelectorOpen] = useState(false);
+  const [keysOpen, setKeysOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<ProviderId>("openai");
   const [selectedModel, setSelectedModel] = useState(defaultModelFor("openai"));
-  const [customApiKey, setCustomApiKey] = useState("");
+  const [temperature, setTemperature] = useState(defaultTemperatureForModel("openai", defaultModelFor("openai")));
+  const [providerApiKeys, setProviderApiKeys] = useState<ProviderKeyMap>(emptyProviderKeys());
   const abortRef = useRef<AbortController | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
+  const selectorRef = useRef<HTMLDivElement | null>(null);
+  const keysRef = useRef<HTMLDivElement | null>(null);
   const styleRef = useRef("");
   const providerRef = useRef<ProviderId>("openai");
   const modelRef = useRef(defaultModelFor("openai"));
+  const temperatureRef = useRef(defaultTemperatureForModel("openai", defaultModelFor("openai")));
   const apiKeyRef = useRef("");
   const cachedResultRef = useRef<AnalysisResult | null>(null);
   const cachedInputRef = useRef("");
@@ -272,7 +305,8 @@ function App() {
   const requestSequenceRef = useRef(0);
   const debouncedInput = useDebounce(input, DEBOUNCE_MS);
   const debouncedStyle = useDebounce(styleDirective, DEBOUNCE_MS);
-  const debouncedApiKey = useDebounce(customApiKey, DEBOUNCE_MS);
+  const debouncedTemperature = useDebounce(temperature, DEBOUNCE_MS);
+  const debouncedProviderApiKeys = useDebounce(providerApiKeys, DEBOUNCE_MS);
 
   const sanitizedChanges = result ? sanitizeChanges(result.rewrite, result.changes ?? []) : [];
   const activeChange =
@@ -284,13 +318,26 @@ function App() {
     const savedStyle = localStorage.getItem(STORAGE_KEYS.style);
     const savedProvider = normalizeProvider(localStorage.getItem(STORAGE_KEYS.provider));
     const savedModel = localStorage.getItem(STORAGE_KEYS.model);
-    const savedApiKey = localStorage.getItem(STORAGE_KEYS.apiKey);
+    const savedTemperature = Number.parseFloat(localStorage.getItem(STORAGE_KEYS.temperature) || "");
+    const savedApiKeys = localStorage.getItem(STORAGE_KEYS.apiKeys);
 
     if (savedTheme) setDark(savedTheme === "dark");
     if (savedStyle) setStyleDirective(savedStyle);
     setSelectedProvider(savedProvider);
-    setSelectedModel(savedModel || defaultModelFor(savedProvider));
-    if (savedApiKey) setCustomApiKey(savedApiKey);
+    const nextModel = savedModel || defaultModelFor(savedProvider);
+    setSelectedModel(nextModel);
+    setTemperature(
+      Number.isFinite(savedTemperature)
+        ? clampTemperature(savedTemperature)
+        : defaultTemperatureForModel(savedProvider, nextModel),
+    );
+    if (savedApiKeys) {
+      try {
+        setProviderApiKeys(normalizeProviderKeys(JSON.parse(savedApiKeys)));
+      } catch {
+        setProviderApiKeys(emptyProviderKeys());
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -310,13 +357,19 @@ function App() {
   }, [selectedModel]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.apiKey, customApiKey);
-  }, [customApiKey]);
+    localStorage.setItem(STORAGE_KEYS.temperature, temperature.toString());
+  }, [temperature]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.apiKeys, JSON.stringify(providerApiKeys));
+  }, [providerApiKeys]);
 
   useEffect(() => {
     const availableModels = MODEL_OPTIONS[selectedProvider].map((option) => option.value);
     if (!availableModels.includes(selectedModel)) {
-      setSelectedModel(defaultModelFor(selectedProvider));
+      const fallbackModel = defaultModelFor(selectedProvider);
+      setSelectedModel(fallbackModel);
+      setTemperature(defaultTemperatureForModel(selectedProvider, fallbackModel));
     }
   }, [selectedModel, selectedProvider]);
 
@@ -333,14 +386,26 @@ function App() {
   }, [selectedModel]);
 
   useEffect(() => {
-    apiKeyRef.current = debouncedApiKey.trim();
-  }, [debouncedApiKey]);
+    temperatureRef.current = clampTemperature(debouncedTemperature);
+  }, [debouncedTemperature]);
+
+  useEffect(() => {
+    apiKeyRef.current = debouncedProviderApiKeys[selectedProvider].trim();
+  }, [debouncedProviderApiKeys, selectedProvider]);
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {
       if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
         setActiveChangeKey(null);
         setModalPos(null);
+      }
+
+      if (selectorRef.current && !selectorRef.current.contains(event.target as Node)) {
+        setSelectorOpen(false);
+      }
+
+      if (keysRef.current && !keysRef.current.contains(event.target as Node)) {
+        setKeysOpen(false);
       }
     };
 
@@ -354,6 +419,7 @@ function App() {
       styleDirective: styleRef.current,
       provider: providerRef.current,
       model: modelRef.current,
+      temperature: temperatureRef.current,
       apiKey: apiKeyRef.current,
     });
     const requestKey = JSON.stringify({ text: trimmedText, settingsKey });
@@ -400,6 +466,7 @@ function App() {
           style_directive: styleRef.current,
           provider: providerRef.current,
           model: modelRef.current,
+          temperature: temperatureRef.current,
           api_key: apiKeyRef.current || undefined,
         }),
       });
@@ -490,7 +557,7 @@ function App() {
     const trimmedInput = debouncedInput.trim();
     if (trimmedInput.length < MIN_LENGTH) return;
     analyze(trimmedInput);
-  }, [analyze, debouncedApiKey, debouncedStyle, selectedModel, selectedProvider, debouncedInput]);
+  }, [analyze, debouncedProviderApiKeys, debouncedStyle, debouncedTemperature, selectedModel, selectedProvider, debouncedInput]);
 
   const toggleChange = (change: SanitizedChange) => {
     if (change.resolvedStart === null || change.resolvedEnd === null) return;
@@ -531,7 +598,19 @@ function App() {
 
   const hasContent = input.trim().length >= MIN_LENGTH;
   const wordCount = input.trim().split(/\s+/).filter(Boolean).length;
-  const modelOptions = modelOptionsFor(selectedProvider, selectedModel);
+  const allModels = allModelOptions();
+  const handleModelSelection = (provider: ProviderId, model: string) => {
+    setSelectedProvider(provider);
+    setSelectedModel(model);
+    setTemperature(defaultTemperatureForModel(provider, model));
+    setSelectorOpen(false);
+  };
+  const handleProviderApiKeyChange = (provider: ProviderId, value: string) => {
+    setProviderApiKeys((prev) => ({
+      ...prev,
+      [provider]: value,
+    }));
+  };
 
   const d = dark;
   const accent = "#c8945a";
@@ -563,6 +642,8 @@ function App() {
   const mutedBorderBottom = "1.5px solid " + theme.textMuted;
   const placeholderColor = d ? "#382e24" : "#c8bfb4";
   const scrollThumbColor = d ? "#2a2418" : "#d0c8bc";
+  const sliderTrackColor = d ? "#241f17" : "#d8d0c4";
+  const sliderThumbOutline = d ? "#2f271b" : "#d3c9bb";
 
   const cssText = [
     "@keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }",
@@ -570,6 +651,16 @@ function App() {
     "@keyframes slideUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }",
     "textarea::placeholder, input::placeholder { font-style: italic; color: " + placeholderColor + "; }",
     "select { appearance: none; }",
+    ".lexis-temp-slider { appearance: none; -webkit-appearance: none; width: 100%; height: 34px; background: transparent; margin: 0; cursor: pointer; }",
+    ".lexis-temp-slider:focus { outline: none; }",
+    ".lexis-temp-slider::-webkit-slider-runnable-track { height: 2px; background: " + sliderTrackColor + "; border-radius: 999px; }",
+    ".lexis-temp-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; margin-top: -6px; background: " + accent + "; border: 1px solid " + sliderThumbOutline + "; box-shadow: 0 0 0 2px " + theme.bgR + "; transition: transform 0.14s ease, box-shadow 0.14s ease; }",
+    ".lexis-temp-slider:hover::-webkit-slider-thumb { transform: scale(1.05); }",
+    ".lexis-temp-slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px " + theme.bgR + ", 0 0 0 4px " + accent + "55; }",
+    ".lexis-temp-slider::-moz-range-track { height: 2px; background: " + sliderTrackColor + "; border: none; border-radius: 999px; }",
+    ".lexis-temp-slider::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: " + accent + "; border: 1px solid " + sliderThumbOutline + "; box-shadow: 0 0 0 2px " + theme.bgR + "; transition: transform 0.14s ease, box-shadow 0.14s ease; }",
+    ".lexis-temp-slider:hover::-moz-range-thumb { transform: scale(1.05); }",
+    ".lexis-temp-slider:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px " + theme.bgR + ", 0 0 0 4px " + accent + "55; }",
     "* { box-sizing: border-box; }",
     "::-webkit-scrollbar { width: 3px; }",
     "::-webkit-scrollbar-thumb { background: " + scrollThumbColor + "; }",
@@ -626,19 +717,243 @@ function App() {
           >
             editorial companion
           </span>
-          <span
-            style={{
-              fontSize: 10,
-              color: theme.textMuted,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-            }}
-          >
-            {selectedProvider} / {selectedModel}
-          </span>
+          <div ref={selectorRef} style={{ position: "relative" }}>
+            <button
+              onClick={() => setSelectorOpen(!selectorOpen)}
+              style={{
+                background: "none",
+                border: "none",
+                color: theme.textMuted,
+                fontSize: 10,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                padding: 0,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontFamily: "inherit",
+              }}
+              onMouseEnter={(event) => {
+                event.currentTarget.style.color = theme.text;
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.color = theme.textMuted;
+              }}
+            >
+              <span>{selectedProvider}</span>
+              <span style={{ color: theme.border }}>/</span>
+              <span>{selectedModel}</span>
+            </button>
+
+            {selectorOpen ? (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 14px)",
+                  left: 0,
+                  width: 320,
+                  maxWidth: "calc(100vw - 64px)",
+                  background: theme.modalBg,
+                  border: modalOuterBorder,
+                  boxShadow: d ? "0 24px 60px rgba(0,0,0,0.45)" : "0 16px 48px rgba(0,0,0,0.12)",
+                  padding: "16px 16px 14px",
+                  zIndex: 40,
+                  animation: "slideUp 0.18s ease",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 9,
+                    letterSpacing: "0.24em",
+                    textTransform: "uppercase",
+                    color: theme.label,
+                    marginBottom: 12,
+                  }}
+                >
+                  Choose model
+                </div>
+                <div style={{ display: "grid", gap: 8 }}>
+                  {allModels.map((option) => {
+                    const isSelected =
+                      option.provider === selectedProvider && option.value === selectedModel;
+                    return (
+                      <button
+                        key={`${option.provider}-${option.value}`}
+                        onClick={() => handleModelSelection(option.provider, option.value)}
+                        style={{
+                          background: isSelected ? theme.hoverBg : "transparent",
+                          border: "1px solid " + (isSelected ? accent : theme.modalBorder),
+                          padding: "12px 14px",
+                          textAlign: "left",
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                          color: theme.text,
+                          transition: "border-color 0.15s, background 0.15s, color 0.15s",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "baseline",
+                            gap: 12,
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 18,
+                              fontStyle: "italic",
+                              color: isSelected ? theme.accentText : theme.text,
+                            }}
+                          >
+                            {option.label}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 9,
+                              letterSpacing: "0.18em",
+                              textTransform: "uppercase",
+                              color: isSelected ? theme.accentText : theme.textMuted,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {option.provider}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+          <div ref={keysRef} style={{ position: "relative" }}>
+            <button
+              onClick={() => setKeysOpen(!keysOpen)}
+              style={{
+                background: "none",
+                border: "none",
+                color: theme.textMuted,
+                fontSize: 10,
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                padding: 0,
+                fontFamily: "inherit",
+              }}
+              onMouseEnter={(event) => {
+                event.currentTarget.style.color = theme.text;
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.color = theme.textMuted;
+              }}
+            >
+              Keys
+            </button>
+
+            {keysOpen ? (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 14px)",
+                  right: 0,
+                  width: 360,
+                  maxWidth: "calc(100vw - 64px)",
+                  background: theme.modalBg,
+                  border: modalOuterBorder,
+                  boxShadow: d ? "0 24px 60px rgba(0,0,0,0.45)" : "0 16px 48px rgba(0,0,0,0.12)",
+                  padding: "16px 16px 14px",
+                  zIndex: 40,
+                  animation: "slideUp 0.18s ease",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 9,
+                    letterSpacing: "0.24em",
+                    textTransform: "uppercase",
+                    color: theme.label,
+                    marginBottom: 12,
+                  }}
+                >
+                  Provider keys
+                </div>
+                <div style={{ display: "grid", gap: 12 }}>
+                  {(Object.keys(MODEL_OPTIONS) as ProviderId[]).map((provider) => (
+                    <label key={provider} style={{ display: "grid", gap: 6 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "baseline",
+                          justifyContent: "space-between",
+                          gap: 12,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: 10,
+                            letterSpacing: "0.18em",
+                            textTransform: "uppercase",
+                            color: provider === selectedProvider ? theme.accentText : theme.label,
+                          }}
+                        >
+                          {provider}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleProviderApiKeyChange(provider, "")}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: theme.textMuted,
+                            fontSize: 9,
+                            letterSpacing: "0.15em",
+                            textTransform: "uppercase",
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            padding: 0,
+                            opacity: providerApiKeys[provider] ? 1 : 0.5,
+                          }}
+                          disabled={!providerApiKeys[provider]}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <input
+                        type="password"
+                        value={providerApiKeys[provider]}
+                        onChange={(event) => handleProviderApiKeyChange(provider, event.target.value)}
+                        placeholder={`Use saved ${provider} server key`}
+                        style={{
+                          width: "100%",
+                          background: theme.toggleBg,
+                          border: "1px solid " + (provider === selectedProvider ? accent : theme.toggleBorder),
+                          outline: "none",
+                          fontFamily: "inherit",
+                          fontSize: 13,
+                          color: theme.text,
+                          caretColor: accent,
+                          padding: "10px 12px",
+                        }}
+                        onFocus={(event) => {
+                          event.currentTarget.style.borderColor = accent;
+                        }}
+                        onBlur={(event) => {
+                          event.currentTarget.style.borderColor =
+                            provider === selectedProvider ? accent : theme.toggleBorder;
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
           <div
             style={{
               display: "flex",
@@ -851,75 +1166,6 @@ function App() {
                   }}
                 />
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                    gap: 10,
-                  }}
-                >
-                  <label style={{ display: "grid", gap: 6 }}>
-                    <span
-                      style={{
-                        fontSize: 10,
-                        letterSpacing: "0.18em",
-                        textTransform: "uppercase",
-                        color: theme.label,
-                      }}
-                    >
-                      Provider
-                    </span>
-                    <select
-                      value={selectedProvider}
-                      onChange={(event) => setSelectedProvider(normalizeProvider(event.target.value))}
-                      style={{
-                        background: theme.toggleBg,
-                        border: toggleBtnBorder,
-                        color: theme.text,
-                        padding: "10px 12px",
-                        fontFamily: "inherit",
-                        fontSize: 13,
-                        outline: "none",
-                      }}
-                    >
-                      <option value="openai">OpenAI</option>
-                      <option value="anthropic">Anthropic</option>
-                    </select>
-                  </label>
-
-                  <label style={{ display: "grid", gap: 6 }}>
-                    <span
-                      style={{
-                        fontSize: 10,
-                        letterSpacing: "0.18em",
-                        textTransform: "uppercase",
-                        color: theme.label,
-                      }}
-                    >
-                      Model
-                    </span>
-                    <select
-                      value={selectedModel}
-                      onChange={(event) => setSelectedModel(event.target.value)}
-                      style={{
-                        background: theme.toggleBg,
-                        border: toggleBtnBorder,
-                        color: theme.text,
-                        padding: "10px 12px",
-                        fontFamily: "inherit",
-                        fontSize: 13,
-                        outline: "none",
-                      }}
-                    >
-                      {modelOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
                 <label style={{ display: "grid", gap: 6 }}>
                   <span
                     style={{
@@ -929,31 +1175,41 @@ function App() {
                       color: theme.label,
                     }}
                   >
-                    API key override
+                    Temperature
                   </span>
-                  <input
-                    type="password"
-                    value={customApiKey}
-                    onChange={(event) => setCustomApiKey(event.target.value)}
-                    placeholder="Leave blank to use the server .env key"
-                    style={{
-                      width: "100%",
-                      background: theme.toggleBg,
-                      border: toggleBtnBorder,
-                      outline: "none",
-                      fontFamily: "inherit",
-                      fontSize: 13,
-                      color: theme.text,
-                      caretColor: accent,
-                      padding: "10px 12px",
-                    }}
-                    onFocus={(event) => {
-                      event.currentTarget.style.borderColor = accent;
-                    }}
-                    onBlur={(event) => {
-                      event.currentTarget.style.borderColor = theme.toggleBorder;
-                    }}
-                  />
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 88px", gap: 10 }}>
+                    <input
+                      className="lexis-temp-slider"
+                      type="range"
+                      min={0}
+                      max={2}
+                      step={0.05}
+                      value={temperature}
+                      onChange={(event) => {
+                        setTemperature(clampTemperature(Number.parseFloat(event.target.value)));
+                      }}
+                      style={{ accentColor: accent }}
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={2}
+                      step={0.05}
+                      value={temperature}
+                      onChange={(event) => {
+                        setTemperature(clampTemperature(Number.parseFloat(event.target.value)));
+                      }}
+                      style={{
+                        background: theme.toggleBg,
+                        border: toggleBtnBorder,
+                        color: theme.text,
+                        padding: "10px 12px",
+                        fontFamily: "inherit",
+                        fontSize: 13,
+                        outline: "none",
+                      }}
+                    />
+                  </div>
                 </label>
 
                 <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
@@ -982,30 +1238,6 @@ function App() {
                     </button>
                   ) : null}
 
-                  {customApiKey ? (
-                    <button
-                      onClick={() => setCustomApiKey("")}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: theme.textMuted,
-                        fontSize: 9,
-                        letterSpacing: "0.15em",
-                        textTransform: "uppercase",
-                        cursor: "pointer",
-                        fontFamily: "inherit",
-                        padding: "0",
-                      }}
-                      onMouseEnter={(event) => {
-                        event.currentTarget.style.color = theme.text;
-                      }}
-                      onMouseLeave={(event) => {
-                        event.currentTarget.style.color = theme.textMuted;
-                      }}
-                    >
-                      Clear key
-                    </button>
-                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -1378,51 +1610,117 @@ function App() {
               Replaced
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-              <span
-                style={{
-                  fontFamily: "Palatino, serif",
-                  fontStyle: "italic",
-                  color: toggledChanges.has(activeChange.key) ? (d ? "#c8a87a" : "#8a5a20") : d ? "#6a5a48" : "#a09080",
-                  fontSize: 18,
-                  textDecoration: toggledChanges.has(activeChange.key) ? "none" : "line-through",
-                }}
-              >
-                {activeChange.original}
-              </span>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 12,
+                marginBottom: 14,
+              }}
+            >
               <button
-                onClick={() => toggleChange(activeChange)}
+                onClick={() => {
+                  if (
+                    !toggledChanges.has(activeChange.key) &&
+                    activeChange.resolvedStart !== null &&
+                    activeChange.resolvedEnd !== null
+                  ) {
+                    toggleChange(activeChange);
+                  }
+                }}
                 disabled={activeChange.resolvedStart === null || activeChange.resolvedEnd === null}
                 style={{
-                  background: "none",
-                  border: "none",
-                  color: theme.textFaint,
-                  fontSize: 16,
+                  background: toggledChanges.has(activeChange.key) ? theme.hoverBg : "transparent",
+                  border: "1px solid " + (toggledChanges.has(activeChange.key) ? accent : theme.modalBorder),
+                  color: toggledChanges.has(activeChange.key) ? (d ? "#c8a87a" : "#8a5a20") : d ? "#6a5a48" : "#a09080",
+                  padding: "12px 14px",
+                  textAlign: "left",
                   cursor:
                     activeChange.resolvedStart === null || activeChange.resolvedEnd === null
                       ? "default"
                       : "pointer",
-                  padding: 0,
                   opacity:
                     activeChange.resolvedStart === null || activeChange.resolvedEnd === null
                       ? 0.5
                       : 1,
+                  transition: "border-color 0.15s, background 0.15s, color 0.15s",
+                  fontFamily: "inherit",
                 }}
               >
-                {toggledChanges.has(activeChange.key) ? "←" : "→"}
+                <div
+                  style={{
+                    fontSize: 9,
+                    letterSpacing: "0.18em",
+                    textTransform: "uppercase",
+                    color: toggledChanges.has(activeChange.key) ? theme.accentText : theme.textFaint,
+                    marginBottom: 8,
+                  }}
+                >
+                  Original
+                </div>
+                <div
+                  style={{
+                    fontFamily: "Palatino, serif",
+                    fontStyle: "italic",
+                    fontSize: 18,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  {activeChange.original}
+                </div>
               </button>
-              <span
+
+              <button
+                onClick={() => {
+                  if (
+                    toggledChanges.has(activeChange.key) &&
+                    activeChange.resolvedStart !== null &&
+                    activeChange.resolvedEnd !== null
+                  ) {
+                    toggleChange(activeChange);
+                  }
+                }}
+                disabled={activeChange.resolvedStart === null || activeChange.resolvedEnd === null}
                 style={{
-                  fontFamily: "Palatino, serif",
-                  fontStyle: "italic",
-                  fontWeight: 500,
+                  background: toggledChanges.has(activeChange.key) ? "transparent" : theme.hoverBg,
+                  border: "1px solid " + (!toggledChanges.has(activeChange.key) ? accent : theme.modalBorder),
                   color: toggledChanges.has(activeChange.key) ? (d ? "#6a5a48" : "#a09080") : d ? "#c8a87a" : "#8a5a20",
-                  fontSize: 18,
-                  textDecoration: toggledChanges.has(activeChange.key) ? "line-through" : "none",
+                  padding: "12px 14px",
+                  textAlign: "left",
+                  cursor:
+                    activeChange.resolvedStart === null || activeChange.resolvedEnd === null
+                      ? "default"
+                      : "pointer",
+                  opacity:
+                    activeChange.resolvedStart === null || activeChange.resolvedEnd === null
+                      ? 0.5
+                      : 1,
+                  transition: "border-color 0.15s, background 0.15s, color 0.15s",
+                  fontFamily: "inherit",
                 }}
               >
-                {activeChange.replacement}
-              </span>
+                <div
+                  style={{
+                    fontSize: 9,
+                    letterSpacing: "0.18em",
+                    textTransform: "uppercase",
+                    color: toggledChanges.has(activeChange.key) ? theme.textFaint : theme.accentText,
+                    marginBottom: 8,
+                  }}
+                >
+                  Edited
+                </div>
+                <div
+                  style={{
+                    fontFamily: "Palatino, serif",
+                    fontStyle: "italic",
+                    fontSize: 18,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  {activeChange.replacement}
+                </div>
+              </button>
             </div>
 
             <div

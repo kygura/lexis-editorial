@@ -63,6 +63,7 @@ class AnalyzeRequest(BaseModel):
     provider: str | None = None
     model: str | None = None
     api_key: str | None = None
+    temperature: float | None = None
 
 
 @dataclass(frozen=True)
@@ -71,7 +72,7 @@ class ProviderConfig:
     default_model_env: str
     fallback_model: str
     model_aliases: dict[str, list[str]]
-    streamer: Callable[[str, str, str, str], AsyncIterator[str]]
+    streamer: Callable[[str, str, str, str, float], AsyncIterator[str]]
 
 
 def build_system_prompt(style_directive: str = "") -> str:
@@ -121,6 +122,12 @@ def resolve_model_candidates(provider: str, model: str) -> list[str]:
     return unique_candidates
 
 
+def resolve_temperature(payload: AnalyzeRequest) -> float:
+    if payload.temperature is None:
+        return 0.7
+    return min(2.0, max(0.0, payload.temperature))
+
+
 def is_model_unavailable_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return any(
@@ -140,12 +147,13 @@ async def stream_openai_completion(
     model: str,
     system_prompt: str,
     user_prompt: str,
+    temperature: float,
 ) -> AsyncIterator[str]:
     client = AsyncOpenAI(api_key=api_key)
     stream = await client.chat.completions.create(
         model=model,
         max_completion_tokens=100000,
-        temperature=0.7,
+        temperature=temperature,
         stream=True,
         messages=[
             {"role": "system", "content": system_prompt},
@@ -166,12 +174,13 @@ async def stream_anthropic_completion(
     model: str,
     system_prompt: str,
     user_prompt: str,
+    temperature: float,
 ) -> AsyncIterator[str]:
     client = AsyncAnthropic(api_key=api_key)
     async with client.messages.stream(
         model=model,
         max_tokens=8192,
-        temperature=0.7,
+        temperature=temperature,
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
     ) as stream:
@@ -232,7 +241,7 @@ async def healthz():
     return {"status": "ok", "default_provider": resolve_default_provider()}
 
 
-@app.post("/api/analyze")
+@app.post("/analyze")
 async def analyze(payload: AnalyzeRequest):
     text = payload.text.strip()
     if len(text) < 8:
@@ -247,13 +256,20 @@ async def analyze(payload: AnalyzeRequest):
     async def stream_response():
         try:
             provider, model, api_key = resolve_provider_settings(payload)
+            temperature = resolve_temperature(payload)
             streamer = PROVIDER_REGISTRY[provider].streamer
             candidates = resolve_model_candidates(provider, model)
             last_error: Exception | None = None
 
             for index, candidate_model in enumerate(candidates):
                 try:
-                    async for delta in streamer(api_key, candidate_model, system_prompt, user_prompt):
+                    async for delta in streamer(
+                        api_key,
+                        candidate_model,
+                        system_prompt,
+                        user_prompt,
+                        temperature,
+                    ):
                         yield sse_payload({"text": delta})
                     yield "data: [DONE]\n\n"
                     return
