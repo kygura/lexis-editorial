@@ -33,6 +33,11 @@ Rules:
 - Lean toward: evocative phrasing, literary vocabulary, precise sensory language, stronger connotational weight
 - Never flatten complexity or simplify unless the original is genuinely clumsy
 - Maintain the register and intent of the original
+- Be language-agnostic: detect and respect the language of the user's text without bias toward English or any other language
+- NEVER translate the user's text into another language unless the user explicitly asks for translation
+- Preserve the original language, script, orthography, and dialect/register conventions of the source text
+- If the input is multilingual or code-switches between languages, preserve that multilingual structure unless the user explicitly asks you to normalize it
+- Any rewrite must remain in the same language as the original passage you are rewriting
 - In "changes", list each meaningful substitution you made
 - CRITICAL: "start" and "end" are character indices in the REWRITE text (0-indexed), pointing to where each replacement appears in the rewrite
 - Double-check that rewrite[start:end] exactly matches the "replacement" string
@@ -55,6 +60,23 @@ JSON format:
     }
   ]
 }"""
+
+VARIATIONS_SYSTEM_PROMPT = """You are a literary editor generating alternative phrasings for a specific word or phrase inside a rewritten text.
+
+Rules:
+- Return ONLY valid JSON, no markdown, no preamble
+- Generate exactly 4 alternatives
+- Each alternative must fit naturally in the surrounding context
+- Vary approach across the four: different imagery, different rhythm, different connotational weight
+- Maintain the same part of speech and syntactic role
+- All alternatives should be at least as literary as the given replacement
+- Be language-agnostic: detect and respect the language of the surrounding text without bias toward English or any other language
+- NEVER translate the text into another language unless the user explicitly asks for translation
+- Every variation must remain in the same language, script, and multilingual pattern as the surrounding source text
+
+JSON format:
+{"variations": ["alternative 1", "alternative 2", "alternative 3", "alternative 4"]}"""
+
 
 
 class AnalyzeRequest(BaseModel):
@@ -235,9 +257,94 @@ def sse_payload(payload: dict[str, str]) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
+class VariationsRequest(BaseModel):
+    rewrite: str
+    original: str
+    replacement: str
+    reason: str = ""
+    style_directive: str = ""
+    provider: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    temperature: float | None = None
+
+
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok", "default_provider": resolve_default_provider()}
+
+
+@app.post("/variations")
+async def variations(payload: VariationsRequest):
+    rewrite = payload.rewrite.strip()
+    if not payload.original or not payload.replacement:
+        async def bad_request_stream():
+            yield sse_payload({"error": "Missing original or replacement"})
+
+        return StreamingResponse(bad_request_stream(), media_type="text/event-stream")
+
+    user_prompt = (
+        f'Full text context:\n"{rewrite}"\n\n'
+        f'The word/phrase "{payload.original}" was replaced with "{payload.replacement}".\n'
+        f'Editorial reason: {payload.reason}\n\n'
+        f'Generate 4 alternative phrasings that could replace "{payload.replacement}" at the same position. '
+        f'Return JSON: {{"variations": ["...", "...", "...", "..."]}}'
+    )
+
+    async def stream_response():
+        try:
+            provider, model, api_key = resolve_provider_settings(
+                AnalyzeRequest(
+                    text=payload.rewrite,
+                    style_directive=payload.style_directive,
+                    provider=payload.provider,
+                    model=payload.model,
+                    api_key=payload.api_key,
+                    temperature=payload.temperature,
+                )
+            )
+            temperature = resolve_temperature(
+                AnalyzeRequest(
+                    text="x",
+                    temperature=payload.temperature,
+                )
+            )
+            streamer = PROVIDER_REGISTRY[provider].streamer
+            candidates = resolve_model_candidates(provider, model)
+            last_error: Exception | None = None
+
+            for index, candidate_model in enumerate(candidates):
+                try:
+                    async for delta in streamer(
+                        api_key,
+                        candidate_model,
+                        VARIATIONS_SYSTEM_PROMPT,
+                        user_prompt,
+                        temperature,
+                    ):
+                        yield sse_payload({"text": delta})
+                    yield "data: [DONE]\n\n"
+                    return
+                except Exception as exc:
+                    last_error = exc
+                    is_last_candidate = index == len(candidates) - 1
+                    if is_last_candidate or not is_model_unavailable_error(exc):
+                        raise
+
+            if last_error is not None:
+                raise last_error
+        except Exception as exc:
+            yield sse_payload({"error": str(exc)})
+
+    return StreamingResponse(
+        stream_response(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/analyze")

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
 
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? "/api" : "http://localhost:8000");
-const DEBOUNCE_MS = 900;
+const LOCAL_BACKEND_URL = "http://localhost:8000"
+const API_URL = import.meta.env.VITE_API_URL ||
+ (import.meta.env.PROD ? "/api" : LOCAL_BACKEND_URL);
 const MIN_LENGTH = 8;
 const SIMILARITY_THRESHOLD = 0.85;
 
@@ -13,6 +14,7 @@ const STORAGE_KEYS = {
   model: "lexis-model",
   temperature: "lexis-temperature",
   apiKeys: "lexis-api-keys",
+  guideSeen: "lexis-guide-seen",
 } as const;
 
 const MODEL_OPTIONS = {
@@ -30,6 +32,75 @@ const MODEL_OPTIONS = {
   ],
 } as const;
 
+const GUIDE_SECTIONS = [
+  {
+    eyebrow: "Start",
+    title: "Write and send",
+    description: "Use the left panel for your source text. Lexis only rewrites after you send it.",
+    bullets: [
+      "Paste or type at least 8 characters into Your text.",
+      "Press Send or Ctrl/Cmd + Enter to generate a rewrite.",
+      "The right panel updates only after a command is sent.",
+    ],
+  },
+  {
+    eyebrow: "Configuration",
+    title: "Pick the model and provider",
+    description: "The provider/model label in the top bar opens the model picker.",
+    bullets: [
+      "Choose between available OpenAI and Anthropic models.",
+      "Your selected provider, model, style, temperature, theme, and keys are saved locally.",
+    ],
+  },
+  {
+    eyebrow: "Keys",
+    title: "Add provider API keys",
+    description: "The Keys button in the top bar lets you set per-provider API keys for this browser.",
+    bullets: [
+      "Paste a key under OpenAI or Anthropic to use it for requests.",
+      "Use Clear to remove a saved key and fall back to the server-side default, if one exists.",
+    ],
+  },
+  {
+    eyebrow: "Style",
+    title: "Shape the rewrite",
+    description: "Open Style directive to steer voice, cadence, constraints, or literary references.",
+    bullets: [
+      "Examples: make it tighter, more formal, more lyrical, or imitate a certain register.",
+      "Adjust Temperature to control how conservative or adventurous the phrasing should be.",
+      "Lower temperature is steadier; higher temperature explores more variation.",
+    ],
+  },
+  {
+    eyebrow: "Review",
+    title: "Inspect and refine changes",
+    description: "Changed text is highlighted in the rewrite panel so you can review individual edits.",
+    bullets: [
+      "Click highlighted text to compare Original and Edited wording.",
+      "Use Generate under Variations to ask for alternate phrasings for a specific change.",
+      "Choose a variation or toggle back to the original wording change by change.",
+    ],
+  },
+  {
+    eyebrow: "Iteration",
+    title: "Edit, copy, and regenerate",
+    description: "Once a rewrite appears, the right panel gives you a few ways to keep working.",
+    bullets: [
+      "Regenerate sends the current source text again with the current settings.",
+      "Edit opens a manual editing mode for the full rewrite; Save stores your manual revision.",
+      "Copy copies the current visible rewrite, including any toggled changes.",
+      "Undo and Redo work for accepted variations, toggled changes, and saved edits.",
+    ],
+  },
+] as const;
+
+const GUIDE_SHORTCUTS = [
+  { keys: "Ctrl/Cmd + Enter", action: "Send the source text" },
+  { keys: "Ctrl/Cmd + Z", action: "Undo the last rewrite-side action" },
+  { keys: "Ctrl/Cmd + Shift + Z", action: "Redo the last undone rewrite-side action" },
+  { keys: "Esc", action: "Close open panels or the guide" },
+] as const;
+
 type ProviderId = keyof typeof MODEL_OPTIONS;
 type ProviderKeyMap = Record<ProviderId, string>;
 
@@ -45,6 +116,13 @@ interface SanitizedChange extends RawChange {
   key: string;
   resolvedStart: number | null;
   resolvedEnd: number | null;
+  originalIndex: number;
+}
+
+interface HistoryEntry {
+  rewrite: string;
+  changes: RawChange[];
+  toggledChanges: Set<string>;
 }
 
 interface Analysis {
@@ -89,18 +167,14 @@ function textSimilarity(a: string, b: string): number {
   return (2.0 * matches) / (longer.length + shorter.length - 2 * (windowSize - 1));
 }
 
-function useDebounce<T>(value: T, delay: number) {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return debounced;
-}
-
 function clampTemperature(value: number) {
   if (Number.isNaN(value)) return 0.7;
   return Math.min(2, Math.max(0, value));
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return !!target.closest("input, textarea, select, [contenteditable='true']") || target.isContentEditable;
 }
 
 function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number) {
@@ -174,6 +248,7 @@ function sanitizeChanges(rewrite: string, changes: RawChange[]): SanitizedChange
       key: `change-${index}-${resolvedStart ?? "na"}-${resolvedEnd ?? "na"}`,
       resolvedStart,
       resolvedEnd,
+      originalIndex: index,
     };
   }
 
@@ -275,7 +350,7 @@ function App() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [activeChangeKey, setActiveChangeKey] = useState<string | null>(null);
-  const [modalPos, setModalPos] = useState<{ x: number; y: number } | null>(null);
+  const [modalPos, setModalPos] = useState<{ x: number; y: number; yAbove: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dark, setDark] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -284,10 +359,18 @@ function App() {
   const [styleOpen, setStyleOpen] = useState(false);
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [keysOpen, setKeysOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<ProviderId>("openai");
   const [selectedModel, setSelectedModel] = useState<string>(defaultModelFor("openai"));
   const [temperature, setTemperature] = useState(defaultTemperatureForModel("openai", defaultModelFor("openai")));
   const [providerApiKeys, setProviderApiKeys] = useState<ProviderKeyMap>(emptyProviderKeys());
+  const [editMode, setEditMode] = useState(false);
+  const [editedText, setEditedText] = useState("");
+  const [varLoading, setVarLoading] = useState(false);
+  const [varOptions, setVarOptions] = useState<string[]>([]);
+  const [varChangeKey, setVarChangeKey] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [redoHistory, setRedoHistory] = useState<HistoryEntry[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
   const selectorRef = useRef<HTMLDivElement | null>(null);
@@ -303,10 +386,7 @@ function App() {
   const lastCompletedKeyRef = useRef("");
   const inFlightKeyRef = useRef<string | null>(null);
   const requestSequenceRef = useRef(0);
-  const debouncedInput = useDebounce(input, DEBOUNCE_MS);
-  const debouncedStyle = useDebounce(styleDirective, DEBOUNCE_MS);
-  const debouncedTemperature = useDebounce(temperature, DEBOUNCE_MS);
-  const debouncedProviderApiKeys = useDebounce(providerApiKeys, DEBOUNCE_MS);
+  const varAbortRef = useRef<AbortController | null>(null);
 
   const sanitizedChanges = result ? sanitizeChanges(result.rewrite, result.changes ?? []) : [];
   const activeChange =
@@ -337,6 +417,11 @@ function App() {
       } catch {
         setProviderApiKeys(emptyProviderKeys());
       }
+    }
+
+    if (localStorage.getItem(STORAGE_KEYS.guideSeen) !== "true") {
+      setHelpOpen(true);
+      localStorage.setItem(STORAGE_KEYS.guideSeen, "true");
     }
   }, []);
 
@@ -374,8 +459,8 @@ function App() {
   }, [selectedModel, selectedProvider]);
 
   useEffect(() => {
-    styleRef.current = debouncedStyle;
-  }, [debouncedStyle]);
+    styleRef.current = styleDirective;
+  }, [styleDirective]);
 
   useEffect(() => {
     providerRef.current = selectedProvider;
@@ -386,12 +471,12 @@ function App() {
   }, [selectedModel]);
 
   useEffect(() => {
-    temperatureRef.current = clampTemperature(debouncedTemperature);
-  }, [debouncedTemperature]);
+    temperatureRef.current = clampTemperature(temperature);
+  }, [temperature]);
 
   useEffect(() => {
-    apiKeyRef.current = debouncedProviderApiKeys[selectedProvider].trim();
-  }, [debouncedProviderApiKeys, selectedProvider]);
+    apiKeyRef.current = providerApiKeys[selectedProvider].trim();
+  }, [providerApiKeys, selectedProvider]);
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {
@@ -455,9 +540,14 @@ function App() {
     setActiveChangeKey(null);
     setModalPos(null);
     setToggledChanges(new Set());
+    setHistory([]);
+    setRedoHistory([]);
+    setEditMode(false);
+    setVarOptions([]);
+    setVarChangeKey(null);
 
     try {
-      const response = await fetch(API_URL + "/api/analyze", {
+      const response = await fetch(API_URL + "/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
@@ -536,32 +626,220 @@ function App() {
     }
   }, []);
 
-  useEffect(() => {
-    const trimmedInput = debouncedInput.trim();
-    if (trimmedInput.length >= MIN_LENGTH) {
-      analyze(trimmedInput);
-      return;
-    }
+  const sendNow = useCallback(() => {
+    const trimmedInput = input.trim();
+    if (trimmedInput.length < MIN_LENGTH) return;
 
-    if (abortRef.current) abortRef.current.abort();
-    lastCompletedKeyRef.current = "";
-    inFlightKeyRef.current = null;
-    setResult(null);
-    setStreaming(false);
+    styleRef.current = styleDirective;
+    providerRef.current = selectedProvider;
+    modelRef.current = selectedModel;
+    temperatureRef.current = clampTemperature(temperature);
+    apiKeyRef.current = providerApiKeys[selectedProvider].trim();
+
+    void analyze(trimmedInput, true);
+  }, [analyze, input, providerApiKeys, selectedModel, selectedProvider, styleDirective, temperature]);
+
+  const snapshotCurrentState = () => {
+    if (!result) return null;
+    return {
+      rewrite: result.rewrite,
+      changes: result.changes ?? [],
+      toggledChanges: new Set(toggledChanges),
+    };
+  };
+
+  const pushToHistory = () => {
+    const snapshot = snapshotCurrentState();
+    if (!snapshot) return;
+    setHistory((prev) => [...prev, snapshot]);
+    setRedoHistory([]);
+  };
+
+  const undo = () => {
+    const current = snapshotCurrentState();
+    if (!current) return;
+
+    setHistory((prev) => {
+      if (prev.length === 0) return prev;
+      const entry = prev[prev.length - 1];
+      setRedoHistory((redoPrev) => [...redoPrev, current]);
+      setResult((r) => (r ? { ...r, rewrite: entry.rewrite, changes: entry.changes } : null));
+      setToggledChanges(new Set(entry.toggledChanges));
+      setActiveChangeKey(null);
+      setModalPos(null);
+      setVarOptions([]);
+      setVarChangeKey(null);
+      return prev.slice(0, -1);
+    });
+  };
+
+  const redo = () => {
+    const current = snapshotCurrentState();
+    if (!current) return;
+
+    setRedoHistory((prev) => {
+      if (prev.length === 0) return prev;
+      const entry = prev[prev.length - 1];
+      setHistory((historyPrev) => [...historyPrev, current]);
+      setResult((r) => (r ? { ...r, rewrite: entry.rewrite, changes: entry.changes } : null));
+      setToggledChanges(new Set(entry.toggledChanges));
+      setActiveChangeKey(null);
+      setModalPos(null);
+      setVarOptions([]);
+      setVarChangeKey(null);
+      return prev.slice(0, -1);
+    });
+  };
+
+  useEffect(() => {
+    document.body.style.overflow = helpOpen ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [helpOpen]);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (helpOpen || activeChangeKey || selectorOpen || keysOpen || editMode) {
+          event.preventDefault();
+        }
+        setHelpOpen(false);
+        setActiveChangeKey(null);
+        setModalPos(null);
+        setSelectorOpen(false);
+        setKeysOpen(false);
+        setEditMode(false);
+        return;
+      }
+
+      if (helpOpen) return;
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      if (isEditableTarget(event.target)) return;
+
+      const key = event.key.toLowerCase();
+
+      if (key === "z" && !event.shiftKey) {
+        if (history.length === 0) return;
+        event.preventDefault();
+        undo();
+        return;
+      }
+
+      if ((key === "z" && event.shiftKey) || key === "y") {
+        if (redoHistory.length === 0) return;
+        event.preventDefault();
+        redo();
+      }
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [activeChangeKey, editMode, helpOpen, history.length, keysOpen, redo, redoHistory.length, selectorOpen, undo]);
+
+  const enterEditMode = () => {
+    if (!result) return;
+    const effective = applyChangeToggles(result.rewrite, sanitizedChanges, toggledChanges);
+    setEditedText(effective);
+    setEditMode(true);
     setActiveChangeKey(null);
     setModalPos(null);
-    setError(null);
-  }, [analyze, debouncedInput]);
+  };
 
-  useEffect(() => {
-    const trimmedInput = debouncedInput.trim();
-    if (trimmedInput.length < MIN_LENGTH) return;
-    analyze(trimmedInput);
-  }, [analyze, debouncedProviderApiKeys, debouncedStyle, debouncedTemperature, selectedModel, selectedProvider, debouncedInput]);
+  const saveEdit = () => {
+    if (!result) return;
+    pushToHistory();
+    setResult({ ...result, rewrite: editedText });
+    setToggledChanges(new Set());
+    setEditMode(false);
+    setActiveChangeKey(null);
+    setModalPos(null);
+  };
+
+  const generateVariations = async (change: SanitizedChange) => {
+    if (!result) return;
+    setVarLoading(true);
+    setVarOptions([]);
+    setVarChangeKey(change.key);
+    if (varAbortRef.current) varAbortRef.current.abort();
+    const controller = new AbortController();
+    varAbortRef.current = controller;
+    try {
+      const response = await fetch(API_URL + "/variations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          rewrite: result.rewrite,
+          original: change.original,
+          replacement: change.replacement,
+          reason: change.reason,
+          style_directive: styleRef.current,
+          provider: providerRef.current,
+          model: modelRef.current,
+          temperature: temperatureRef.current,
+          api_key: apiKeyRef.current || undefined,
+        }),
+      });
+      if (!response.ok || !response.body) throw new Error("Variations request failed");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let lineBuffer = "";
+      let fullText = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        lineBuffer += decoder.decode(value, { stream: true });
+        const lines = lineBuffer.split("\n");
+        lineBuffer = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+          if (data === "[DONE]") continue;
+          let parsed: { text?: string; error?: string } | null = null;
+          try { parsed = JSON.parse(data); } catch { continue; }
+          if (parsed?.error) throw new Error(parsed.error);
+          if (parsed?.text) fullText += parsed.text;
+        }
+      }
+      const clean = fullText.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(clean);
+      setVarOptions(Array.isArray(parsed.variations) ? parsed.variations.slice(0, 4) : []);
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      setVarOptions([]);
+    } finally {
+      setVarLoading(false);
+    }
+  };
+
+  const applyVariation = (change: SanitizedChange, variation: string) => {
+    if (!result || change.resolvedStart === null || change.resolvedEnd === null) return;
+    pushToHistory();
+    const newRewrite =
+      result.rewrite.slice(0, change.resolvedStart) +
+      variation +
+      result.rewrite.slice(change.resolvedEnd);
+    const newChanges = (result.changes ?? []).map((c, i) =>
+      i === change.originalIndex
+        ? { ...c, replacement: variation, start: change.resolvedStart!, end: change.resolvedStart! + variation.length }
+        : c,
+    );
+    setResult({ ...result, rewrite: newRewrite, changes: newChanges });
+    setToggledChanges((prev) => {
+      const next = new Set(prev);
+      next.delete(change.key);
+      return next;
+    });
+    const newKey = `change-${change.originalIndex}-${change.resolvedStart!}-${change.resolvedStart! + variation.length}`;
+    setActiveChangeKey(newKey);
+    setVarOptions([]);
+    setVarChangeKey(null);
+  };
 
   const toggleChange = (change: SanitizedChange) => {
     if (change.resolvedStart === null || change.resolvedEnd === null) return;
-
+    pushToHistory();
     setToggledChanges((prev) => {
       const next = new Set(prev);
       if (next.has(change.key)) {
@@ -593,6 +871,7 @@ function App() {
     setModalPos({
       x: rect.left + rect.width / 2,
       y: rect.bottom + 8,
+      yAbove: rect.top - 8,
     });
   };
 
@@ -831,6 +1110,53 @@ function App() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+          <button
+            onClick={() => {
+              setHelpOpen(true);
+              setSelectorOpen(false);
+              setKeysOpen(false);
+              localStorage.setItem(STORAGE_KEYS.guideSeen, "true");
+            }}
+            style={{
+              background: "none",
+              border: "none",
+              color: theme.textMuted,
+              fontSize: 10,
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              padding: 0,
+              fontFamily: "inherit",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+            onMouseEnter={(event) => {
+              event.currentTarget.style.color = theme.text;
+            }}
+            onMouseLeave={(event) => {
+              event.currentTarget.style.color = theme.textMuted;
+            }}
+          >
+            <span
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: "50%",
+                border: "1px solid " + theme.border,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 9,
+                lineHeight: 1,
+                color: theme.accentText,
+              }}
+            >
+              ?
+            </span>
+            <span>Guide</span>
+          </button>
+
           <div ref={keysRef} style={{ position: "relative" }}>
             <button
               onClick={() => setKeysOpen(!keysOpen)}
@@ -1075,6 +1401,12 @@ function App() {
             autoFocus
             value={input}
             onChange={(event) => setInput(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                event.preventDefault();
+                sendNow();
+              }
+            }}
             placeholder={"Begin writing…"}
             style={{
               flex: 1,
@@ -1090,6 +1422,55 @@ function App() {
               minHeight: 300,
             }}
           />
+
+          <div
+            style={{
+              marginTop: 10,
+              fontSize: 10,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: theme.textFaint,
+            }}
+          >
+            Press Ctrl/Cmd + Enter to send
+          </div>
+
+          <div
+            style={{
+              marginTop: 14,
+              display: "flex",
+              justifyContent: "flex-start",
+            }}
+          >
+            <button
+              onClick={sendNow}
+              disabled={!hasContent || streaming}
+              style={{
+                background: hasContent && !streaming ? accent + "14" : "transparent",
+                border: "1px solid " + (hasContent && !streaming ? accent : theme.border),
+                color: hasContent && !streaming ? accent : theme.textFaint,
+                padding: "8px 16px",
+                fontSize: 10,
+                letterSpacing: "0.2em",
+                textTransform: "uppercase",
+                cursor: hasContent && !streaming ? "pointer" : "not-allowed",
+                fontFamily: "inherit",
+                transition: "all 0.15s",
+                opacity: hasContent || streaming ? 1 : 0.6,
+              }}
+              onMouseEnter={(event) => {
+                if (!hasContent || streaming) return;
+                event.currentTarget.style.background = accent + "22";
+                event.currentTarget.style.color = theme.text;
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.background = hasContent && !streaming ? accent + "14" : "transparent";
+                event.currentTarget.style.color = hasContent && !streaming ? accent : theme.textFaint;
+              }}
+            >
+              Send
+            </button>
+          </div>
 
           <div
             style={{
@@ -1282,7 +1663,7 @@ function App() {
           >
             <span>Alternate</span>
             <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-              {result && !streaming ? (
+              {result && !streaming && !editMode ? (
                 <span
                   style={{
                     fontSize: 9,
@@ -1295,9 +1676,65 @@ function App() {
                 </span>
               ) : null}
 
-              {result && !streaming ? (
+              {history.length > 0 && !streaming ? (
                 <button
-                  onClick={() => analyze(input.trim(), true)}
+                  onClick={undo}
+                  style={{
+                    background: "none",
+                    border: copyBtnBorder,
+                    color: theme.textMuted,
+                    padding: "4px 14px",
+                    fontSize: 9,
+                    letterSpacing: "0.2em",
+                    textTransform: "uppercase",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    transition: "all 0.15s",
+                  }}
+                  onMouseEnter={(event) => {
+                    event.currentTarget.style.borderColor = theme.textMuted;
+                    event.currentTarget.style.color = theme.text;
+                  }}
+                  onMouseLeave={(event) => {
+                    event.currentTarget.style.borderColor = theme.border;
+                    event.currentTarget.style.color = theme.textMuted;
+                  }}
+                >
+                  Undo
+                </button>
+              ) : null}
+
+              {redoHistory.length > 0 && !streaming ? (
+                <button
+                  onClick={redo}
+                  style={{
+                    background: "none",
+                    border: copyBtnBorder,
+                    color: theme.textMuted,
+                    padding: "4px 14px",
+                    fontSize: 9,
+                    letterSpacing: "0.2em",
+                    textTransform: "uppercase",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    transition: "all 0.15s",
+                  }}
+                  onMouseEnter={(event) => {
+                    event.currentTarget.style.borderColor = theme.textMuted;
+                    event.currentTarget.style.color = theme.text;
+                  }}
+                  onMouseLeave={(event) => {
+                    event.currentTarget.style.borderColor = theme.border;
+                    event.currentTarget.style.color = theme.textMuted;
+                  }}
+                >
+                  Redo
+                </button>
+              ) : null}
+
+              {result && !streaming && !editMode ? (
+                <button
+                  onClick={sendNow}
                   style={{
                     background: "none",
                     border: copyBtnBorder,
@@ -1323,7 +1760,61 @@ function App() {
                 </button>
               ) : null}
 
-              {result ? (
+              {result && !streaming && !editMode ? (
+                <button
+                  onClick={enterEditMode}
+                  style={{
+                    background: "none",
+                    border: copyBtnBorder,
+                    color: theme.textMuted,
+                    padding: "4px 14px",
+                    fontSize: 9,
+                    letterSpacing: "0.2em",
+                    textTransform: "uppercase",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    transition: "all 0.15s",
+                  }}
+                  onMouseEnter={(event) => {
+                    event.currentTarget.style.borderColor = theme.textMuted;
+                    event.currentTarget.style.color = theme.text;
+                  }}
+                  onMouseLeave={(event) => {
+                    event.currentTarget.style.borderColor = theme.border;
+                    event.currentTarget.style.color = theme.textMuted;
+                  }}
+                >
+                  Edit
+                </button>
+              ) : null}
+
+              {editMode ? (
+                <button
+                  onClick={saveEdit}
+                  style={{
+                    background: "none",
+                    border: "1px solid " + accent,
+                    color: accent,
+                    padding: "4px 14px",
+                    fontSize: 9,
+                    letterSpacing: "0.2em",
+                    textTransform: "uppercase",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    transition: "all 0.15s",
+                  }}
+                  onMouseEnter={(event) => {
+                    event.currentTarget.style.background = accent + "22";
+                  }}
+                  onMouseLeave={(event) => {
+                    event.currentTarget.style.background = "none";
+                  }}
+                >
+                  Save
+                </button>
+              ) : null}
+
+              {result && !editMode ? (
                 <button
                   onClick={copyRewrite}
                   style={{
@@ -1379,7 +1870,28 @@ function App() {
             </div>
           ) : null}
 
-          {result ? (
+          {result && editMode ? (
+            <textarea
+              autoFocus
+              value={editedText}
+              onChange={(e) => setEditedText(e.target.value)}
+              style={{
+                flex: 1,
+                width: "100%",
+                background: "transparent",
+                border: "none",
+                outline: "none",
+                resize: "none",
+                fontFamily: "Palatino, serif",
+                fontSize: 19,
+                lineHeight: 1.85,
+                color: theme.text,
+                caretColor: accent,
+                minHeight: 300,
+                marginBottom: 32,
+              }}
+            />
+          ) : result ? (
             <div
               style={{
                 fontSize: 19,
@@ -1552,6 +2064,216 @@ function App() {
         </div>
       </div>
 
+      {helpOpen ? (
+        <div
+          onClick={() => setHelpOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 70,
+            background: d ? "rgba(8, 7, 5, 0.78)" : "rgba(32, 24, 16, 0.18)",
+            backdropFilter: "blur(6px)",
+            overflowY: "auto",
+            padding: 24,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "min(980px, calc(100vw - 48px))",
+              maxHeight: "calc(100vh - 48px)",
+              overflowY: "auto",
+              background: theme.modalBg,
+              border: modalOuterBorder,
+              boxShadow: d ? "0 30px 80px rgba(0,0,0,0.55)" : "0 20px 64px rgba(0,0,0,0.14)",
+              animation: "slideUp 0.18s ease",
+              flexShrink: 0,
+            }}
+          >
+            <div style={{ padding: "28px 30px 26px", position: "relative" }}>
+              <button
+                onClick={() => setHelpOpen(false)}
+                style={{
+                  position: "absolute",
+                  top: 14,
+                  right: 16,
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: d ? "#5a4e3a" : "#b0a090",
+                  fontSize: 20,
+                  lineHeight: 1,
+                  padding: 4,
+                  transition: "color 0.15s",
+                  fontFamily: "inherit",
+                }}
+                onMouseEnter={(event) => {
+                  event.currentTarget.style.color = d ? "#c8a87a" : "#6a5a4a";
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.color = d ? "#5a4e3a" : "#b0a090";
+                }}
+              >
+                &times;
+              </button>
+
+              <div
+                style={{
+                  fontSize: 10,
+                  letterSpacing: "0.3em",
+                  textTransform: "uppercase",
+                  color: theme.label,
+                  marginBottom: 10,
+                }}
+              >
+                How to use Lexis
+              </div>
+
+              <div style={{ maxWidth: 700, margin: "0 auto 24px", textAlign: "center" }}>
+                <div
+                  style={{
+                    fontSize: 28,
+                    lineHeight: 1.2,
+                    color: theme.text,
+                    fontStyle: "italic",
+                    marginBottom: 10,
+                  }}
+                >
+                  Rewrite deliberately, review surgically.
+                </div>
+                <div
+                  style={{
+                    fontSize: 15,
+                    lineHeight: 1.75,
+                    color: theme.textMuted,
+                  }}
+                >
+                  Lexis is built for guided rewriting. You send source text from the left, inspect the rewritten version on the right, then refine it with change-level controls, variations, manual editing, and history.
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                  gap: 12,
+                  marginBottom: 24,
+                }}
+              >
+                {GUIDE_SHORTCUTS.map((shortcut) => (
+                  <div
+                    key={shortcut.keys}
+                    style={{
+                      border: "1px solid " + theme.modalBorder,
+                      background: theme.hoverBg,
+                      padding: "14px 16px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 10,
+                        letterSpacing: "0.18em",
+                        textTransform: "uppercase",
+                        color: theme.accentText,
+                        marginBottom: 8,
+                      }}
+                    >
+                      {shortcut.keys}
+                    </div>
+                    <div style={{ fontSize: 14, lineHeight: 1.6, color: theme.text }}>
+                      {shortcut.action}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                  gap: 14,
+                }}
+              >
+                {GUIDE_SECTIONS.map((section) => (
+                  <div
+                    key={section.title}
+                    style={{
+                      border: "1px solid " + theme.modalBorder,
+                      padding: "18px 18px 16px",
+                      background: d ? "rgba(255,255,255,0.01)" : "rgba(255,255,255,0.55)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 9,
+                        letterSpacing: "0.22em",
+                        textTransform: "uppercase",
+                        color: theme.label,
+                        marginBottom: 8,
+                      }}
+                    >
+                      {section.eyebrow}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 21,
+                        lineHeight: 1.25,
+                        color: theme.text,
+                        fontStyle: "italic",
+                        marginBottom: 8,
+                      }}
+                    >
+                      {section.title}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        lineHeight: 1.7,
+                        color: theme.textMuted,
+                        marginBottom: 12,
+                      }}
+                    >
+                      {section.description}
+                    </div>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {section.bullets.map((bullet) => (
+                        <div
+                          key={bullet}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "10px 1fr",
+                            gap: 10,
+                            alignItems: "start",
+                            fontSize: 13,
+                            lineHeight: 1.65,
+                            color: theme.text,
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: 4,
+                              height: 4,
+                              borderRadius: "50%",
+                              background: accent,
+                              marginTop: 9,
+                              display: "inline-block",
+                            }}
+                          />
+                          <span>{bullet}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {activeChange && modalPos ? (
         <div
           ref={modalRef}
@@ -1560,11 +2282,19 @@ function App() {
             zIndex: 50,
             width: 420,
             maxWidth: "92vw",
+            maxHeight: "calc(100vh - 32px)",
+            overflowY: "auto",
             background: theme.modalBg,
             border: modalOuterBorder,
             boxShadow: d ? "0 24px 60px rgba(0,0,0,0.6)" : "0 16px 48px rgba(0,0,0,0.12)",
             left: Math.max(16, Math.min(modalPos.x - 210, window.innerWidth - 436)),
-            top: modalPos.y,
+            top: (() => {
+              const approxHeight = 480;
+              const fitsBelow = modalPos.y + approxHeight < window.innerHeight - 16;
+              return fitsBelow
+                ? modalPos.y
+                : Math.max(16, modalPos.yAbove - approxHeight);
+            })(),
             animation: "slideUp 0.18s ease",
           }}
         >
@@ -1753,6 +2483,124 @@ function App() {
             >
               {activeChange.reason}
             </div>
+
+            <div
+              style={{
+                width: "100%",
+                height: 1,
+                background: theme.modalBorder,
+                margin: "16px 0 14px",
+              }}
+            />
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 10,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 9,
+                  letterSpacing: "0.24em",
+                  textTransform: "uppercase",
+                  color: theme.label,
+                }}
+              >
+                Variations
+              </div>
+              <button
+                onClick={() => generateVariations(activeChange)}
+                disabled={varLoading}
+                style={{
+                  background: "none",
+                  border: "1px solid " + theme.modalBorder,
+                  color: varLoading ? theme.textFaint : theme.textMuted,
+                  padding: "4px 12px",
+                  fontSize: 9,
+                  letterSpacing: "0.18em",
+                  textTransform: "uppercase",
+                  cursor: varLoading ? "default" : "pointer",
+                  fontFamily: "inherit",
+                  transition: "border-color 0.15s, color 0.15s",
+                }}
+                onMouseEnter={(e) => {
+                  if (!varLoading) {
+                    e.currentTarget.style.borderColor = theme.textMuted;
+                    e.currentTarget.style.color = theme.text;
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = theme.modalBorder;
+                  e.currentTarget.style.color = varLoading ? theme.textFaint : theme.textMuted;
+                }}
+              >
+                {varLoading && varChangeKey === activeChange.key ? "Generating…" : "Generate"}
+              </button>
+            </div>
+
+            {varLoading && varChangeKey === activeChange.key ? (
+              <div style={{ display: "flex", gap: 5, paddingBottom: 4, alignItems: "center" }}>
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    style={{
+                      width: 4,
+                      height: 4,
+                      borderRadius: "50%",
+                      background: accent,
+                      animation: "pulse 1.2s ease-in-out infinite",
+                      animationDelay: i * 180 + "ms",
+                    }}
+                  />
+                ))}
+                <span
+                  style={{
+                    fontSize: 9,
+                    letterSpacing: "0.15em",
+                    textTransform: "uppercase",
+                    color: theme.textMuted,
+                    marginLeft: 4,
+                  }}
+                >
+                  generating
+                </span>
+              </div>
+            ) : varOptions.length > 0 && varChangeKey === activeChange.key ? (
+              <div style={{ display: "grid", gap: 6 }}>
+                {varOptions.map((v, i) => (
+                  <button
+                    key={i}
+                    onClick={() => applyVariation(activeChange, v)}
+                    style={{
+                      background: "transparent",
+                      border: "1px solid " + theme.modalBorder,
+                      padding: "10px 14px",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      fontFamily: "Palatino, serif",
+                      fontStyle: "italic",
+                      fontSize: 16,
+                      color: theme.accentText,
+                      lineHeight: 1.45,
+                      transition: "border-color 0.12s, background 0.12s",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = accent;
+                      e.currentTarget.style.background = theme.hoverBg;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = theme.modalBorder;
+                      e.currentTarget.style.background = "transparent";
+                    }}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
