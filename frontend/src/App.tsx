@@ -892,24 +892,25 @@ function App() {
   };
 
   const d = dark;
-  const accent = "#c8945a";
+  const accent = "#d4975c";
   const theme = {
     bg: d ? "#0e0c0a" : "#f5f2ec",
     bgR: d ? "#110f0c" : "#f0ece4",
-    border: d ? "#1e1a14" : "#d8d0c4",
-    text: d ? "#e8ddd0" : "#2a2218",
-    textMuted: d ? "#5a4e42" : "#a09080",
-    textFaint: d ? "#382e24" : "#c8bfb4",
-    label: d ? "#4a3e32" : "#c0b0a0",
-    unchanged: d ? "#9a8878" : "#4a3a2a",
-    accentText: d ? "#c8a87a" : "#7a5a2a",
-    hoverBg: d ? "#1e1a14" : "#e8e0d4",
+    border: d ? "#2e2820" : "#d8d0c4",
+    text: d ? "#f0e8da" : "#2a2218",
+    textMuted: d ? "#a8957e" : "#6a5a4a",
+    textFaint: d ? "#7a6a56" : "#a09080",
+    label: d ? "#8a7862" : "#a09080",
+    unchanged: d ? "#c8b89e" : "#4a3a2a",
+    accentText: d ? "#d4a870" : "#7a5a2a",
+    hoverBg: d ? "rgba(255,255,255,0.04)" : "#e8e0d4",
     toggleBg: d ? "#1a1610" : "#ede8e0",
-    toggleBorder: d ? "#2a2418" : "#d0c8bc",
+    toggleBorder: d ? "#3a3028" : "#d0c8bc",
     modalBg: d ? "#131008" : "#faf7f1",
-    modalBorder: d ? "#2a2418" : "#ddd5c4",
-    pillBg: d ? "#1a1610" : "#f2ede3",
-    pillBorder: d ? "#252018" : "#e2d8cc",
+    modalBorder: d ? "#3a3028" : "#ddd5c4",
+    pillBg: d ? "#1c1914" : "#f2ede3",
+    pillBorder: d ? "#362e24" : "#e2d8cc",
+    shadow: d ? "0 8px 32px rgba(0,0,0,0.5)" : "0 4px 20px rgba(0,0,0,0.08)",
   };
 
   const topBorder = "1px solid " + theme.border;
@@ -919,10 +920,10 @@ function App() {
   const modalOuterBorder = "1px solid " + theme.modalBorder;
   const accentBorderBottom = "1.5px solid " + accent;
   const mutedBorderBottom = "1.5px solid " + theme.textMuted;
-  const placeholderColor = d ? "#382e24" : "#c8bfb4";
-  const scrollThumbColor = d ? "#2a2418" : "#d0c8bc";
-  const sliderTrackColor = d ? "#241f17" : "#d8d0c4";
-  const sliderThumbOutline = d ? "#2f271b" : "#d3c9bb";
+  const placeholderColor = d ? "#6a5a46" : "#c8bfb4";
+  const scrollThumbColor = d ? "#4a3e30" : "#d0c8bc";
+  const sliderTrackColor = d ? "#3a3228" : "#d8d0c4";
+  const sliderThumbOutline = d ? "#4a3e30" : "#d3c9bb";
 
   const cssText = [
     "@keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }",
@@ -2103,7 +2104,7 @@ function App() {
                   background: "none",
                   border: "none",
                   cursor: "pointer",
-                  color: d ? "#5a4e3a" : "#b0a090",
+                  color: d ? "#907868" : "#b0a090",
                   fontSize: 20,
                   lineHeight: 1,
                   padding: 4,
@@ -2111,10 +2112,10 @@ function App() {
                   fontFamily: "inherit",
                 }}
                 onMouseEnter={(event) => {
-                  event.currentTarget.style.color = d ? "#c8a87a" : "#6a5a4a";
+                  event.currentTarget.style.color = d ? "#d4a870" : "#6a5a4a";
                 }}
                 onMouseLeave={(event) => {
-                  event.currentTarget.style.color = d ? "#5a4e3a" : "#b0a090";
+                  event.currentTarget.style.color = d ? "#907868" : "#b0a090";
                 }}
               >
                 &times;
@@ -2311,7 +2312,7 @@ function App() {
                 background: "none",
                 border: "none",
                 cursor: "pointer",
-                color: d ? "#5a4e3a" : "#b0a090",
+                color: d ? "#907868" : "#b0a090",
                 fontSize: 18,
                 lineHeight: 1,
                 padding: 4,
@@ -2319,10 +2320,10 @@ function App() {
                 fontFamily: "inherit",
               }}
               onMouseEnter={(event) => {
-                event.currentTarget.style.color = d ? "#c8a87a" : "#6a5a4a";
+                event.currentTarget.style.color = d ? "#d4a870" : "#6a5a4a";
               }}
               onMouseLeave={(event) => {
-                event.currentTarget.style.color = d ? "#5a4e3a" : "#b0a090";
+                event.currentTarget.style.color = d ? "#907868" : "#b0a090";
               }}
             >
               &times;
@@ -2333,7 +2334,7 @@ function App() {
                 fontSize: 10,
                 letterSpacing: "0.28em",
                 textTransform: "uppercase",
-                color: d ? "#5a4e3a" : "#b0a090",
+                color: d ? "#907868" : "#b0a090",
                 marginBottom: 10,
               }}
             >
@@ -2362,7 +2363,7 @@ function App() {
                 style={{
                   background: toggledChanges.has(activeChange.key) ? theme.hoverBg : "transparent",
                   border: "1px solid " + (toggledChanges.has(activeChange.key) ? accent : theme.modalBorder),
-                  color: toggledChanges.has(activeChange.key) ? (d ? "#c8a87a" : "#8a5a20") : d ? "#6a5a48" : "#a09080",
+                  color: toggledChanges.has(activeChange.key) ? (d ? "#d4a870" : "#8a5a20") : d ? "#a08878" : "#a09080",
                   padding: "12px 14px",
                   textAlign: "left",
                   cursor:
@@ -2414,7 +2415,7 @@ function App() {
                 style={{
                   background: toggledChanges.has(activeChange.key) ? "transparent" : theme.hoverBg,
                   border: "1px solid " + (!toggledChanges.has(activeChange.key) ? accent : theme.modalBorder),
-                  color: toggledChanges.has(activeChange.key) ? (d ? "#6a5a48" : "#a09080") : d ? "#c8a87a" : "#8a5a20",
+                  color: toggledChanges.has(activeChange.key) ? (d ? "#a08878" : "#a09080") : d ? "#d4a870" : "#8a5a20",
                   padding: "12px 14px",
                   textAlign: "left",
                   cursor:
@@ -2478,7 +2479,7 @@ function App() {
               style={{
                 fontSize: 13,
                 lineHeight: 1.6,
-                color: d ? "#9a8a78" : "#6a5a48",
+                color: d ? "#b8a48e" : "#6a5a48",
               }}
             >
               {activeChange.reason}
