@@ -15,11 +15,11 @@ cd lexis-frontend && npm run dev
 ## Key Features to Test
 1. **Rewrite generation** — Type 8+ chars, wait for 900ms debounce, verify REWRITING animation and result in right panel
 2. **Inline highlighting** — Click highlighted words in the rewrite to open floating modal with original/replacement/reason
-3. **Changelog toggle** — Click changelog pills to swap between original and edited words (clean swap, no strikethrough)
+3. **Margin notes** — Click a numbered margin note to restore the original wording (marked "stet"); click again to use the edit
 4. **Dark/light mode** — Toggle via top-right button, persists in localStorage
 5. **Copy button** — Copies rewrite text respecting any toggled changes
 6. **Input caching** — Small edits (85%+ similarity) reuse cached result. Regenerate button forces fresh API call
-7. **Style directive** — Collapsible panel at bottom of left panel. Describe a target style, verify output reflects it. Changing style invalidates cache. Persists in localStorage
+7. **Editor's brief (style directive)** — Collapsible panel at bottom of the manuscript sheet. Describe a target style, verify output reflects it. Changing style invalidates cache. Persists in localStorage
 
 ## Testing the Style Directive
 - Use a distinctive style like "Write like a pirate" to verify the AI follows the directive
@@ -32,4 +32,4 @@ cd lexis-frontend && npx tsc --noEmit
 ```
 
 ## API Key
-The backend requires `OPENAI_API_KEY` set in `lexis-backend/.env`. Model: gpt-5.4.
+The backend requires `OPENAI_API_KEY` set in `lexis-backend/.env`. Default models: gpt-6.1-sol (OpenAI), claude-opus-5-5 (Anthropic).
