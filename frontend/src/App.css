@@ -1168,30 +1168,30 @@ button {
 
 /* ---------- Motion ---------- */
 
-/* A carriage-return bump when the manuscript goes to the editor. */
+/* Sending presses the manuscript down like a key, then lets it spring back. */
 .lx-manuscript.is-sent {
-  animation: lx-bump 0.42s cubic-bezier(0.3, 0.7, 0.4, 1);
+  animation: lx-press 0.32s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 
 .lx-manuscript.is-sent .lx-key {
-  animation: lx-keypress 0.26s ease-out;
+  animation: lx-keypress 0.32s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 
-@keyframes lx-bump {
+@keyframes lx-press {
   0% {
-    transform: translate(0, 0);
+    transform: translateY(0) scale(1);
+    box-shadow: var(--sheet-shadow);
   }
-  28% {
-    transform: translate(-4px, -9px) rotate(-0.35deg);
+  22% {
+    transform: translateY(5px) scale(0.992);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
   }
-  58% {
-    transform: translate(1px, 2px) rotate(0.1deg);
-  }
-  80% {
-    transform: translate(0, -1px);
+  60% {
+    transform: translateY(-1px) scale(1.001);
   }
   100% {
-    transform: translate(0, 0);
+    transform: translateY(0) scale(1);
+    box-shadow: var(--sheet-shadow);
   }
 }
 
@@ -1199,7 +1199,7 @@ button {
   0% {
     transform: translateY(0);
   }
-  35% {
+  22% {
     transform: translateY(3px);
     box-shadow: 0 0 0 transparent;
   }
