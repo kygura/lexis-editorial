@@ -35,6 +35,7 @@ Rules:
 - Lean toward: evocative phrasing, literary vocabulary, precise sensory language, stronger connotational weight
 - Never flatten complexity or simplify unless the original is genuinely clumsy
 - Maintain the register and intent of the original
+- Keep any Markdown syntax intact (emphasis, links, inline code, list markers, block quotes); rewrite only the prose inside it
 - Be language-agnostic: detect and respect the language of the user's text without bias toward English or any other language
 - NEVER translate the user's text into another language unless the user explicitly asks for translation
 - Preserve the original language, script, orthography, and dialect/register conventions of the source text
@@ -88,6 +89,10 @@ class AnalyzeRequest(BaseModel):
     model: str | None = None
     api_key: str | None = None
     effort: str | None = None
+    # Folio mode sends one paragraph at a time; the neighbours keep the
+    # rewrite in voice and continuity without being rewritten themselves.
+    context_before: str = ""
+    context_after: str = ""
 
 
 @dataclass(frozen=True)
@@ -107,6 +112,27 @@ def build_system_prompt(style_directive: str = "") -> str:
             f"{style_directive.strip()}"
         )
     return prompt
+
+
+CONTEXT_LIMIT = 2000
+
+
+def build_user_prompt(text: str, context_before: str = "", context_after: str = "") -> str:
+    before = context_before.strip()[-CONTEXT_LIMIT:]
+    after = context_after.strip()[:CONTEXT_LIMIT]
+    if not before and not after:
+        return f'\n\n"{text}"'
+
+    parts = [
+        "This passage sits inside a longer document. The surrounding text is for continuity of voice, "
+        "tense, and reference only: do not rewrite it, quote it, or include it in the rewrite."
+    ]
+    if before:
+        parts.append(f'Text before:\n"{before}"')
+    if after:
+        parts.append(f'Text after:\n"{after}"')
+    parts.append(f'Rewrite only this passage:\n"{text}"')
+    return "\n\n".join(parts)
 
 
 def resolve_default_provider() -> str:
@@ -421,7 +447,7 @@ async def analyze(payload: AnalyzeRequest):
         return StreamingResponse(short_text_stream(), media_type="text/event-stream")
 
     system_prompt = build_system_prompt(payload.style_directive)
-    user_prompt = f'\n\n"{text}"'
+    user_prompt = build_user_prompt(text, payload.context_before, payload.context_after)
 
     async def stream_response():
         provider: str | None = payload.provider

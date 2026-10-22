@@ -1,5 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
+import Folio from "./Folio";
+import {
+  ApiError,
+  KEY_ERROR_CODES,
+  applyChangeToggles,
+  buildSegments,
+  extractPartialRewrite,
+  sanitizeChanges,
+  toLexisError,
+  type AnalysisResult,
+  type LexisError,
+  type RawChange,
+  type SanitizedChange,
+} from "./lib/proof";
 
 const LOCAL_BACKEND_URL = "http://localhost:8000"
 const API_URL = import.meta.env.VITE_API_URL ||
@@ -15,7 +29,10 @@ const STORAGE_KEYS = {
   effort: "lexis-effort",
   apiKeys: "lexis-api-keys",
   guideSeen: "lexis-guide-seen",
+  mode: "lexis-mode",
 } as const;
+
+type Mode = "desk" | "folio";
 
 const MODEL_OPTIONS = {
   openai: [
@@ -103,6 +120,17 @@ const GUIDE_SECTIONS = [
       "Undo and Redo cover variations, restorations, and saved edits.",
     ],
   },
+  {
+    eyebrow: "VII",
+    title: "Work the folio",
+    description: "Folio is the pro mode: one long sheet for whole chapters and books.",
+    bullets: [
+      "Import .md files or a folder, or drop them on the sheet.",
+      "Enter starts a paragraph; Shift + Enter breaks a line.",
+      "With Live on, each paragraph is proofed as you pause.",
+      "Export .md takes the proof, minus anything you kept.",
+    ],
+  },
 ] as const;
 
 const GUIDE_SHORTCUTS = [
@@ -115,72 +143,12 @@ const GUIDE_SHORTCUTS = [
 type ProviderId = keyof typeof MODEL_OPTIONS;
 type ProviderKeyMap = Record<ProviderId, string>;
 
-interface RawChange {
-  original: string;
-  replacement: string;
-  start: number;
-  end: number;
-  reason: string;
-}
-
-interface SanitizedChange extends RawChange {
-  key: string;
-  resolvedStart: number | null;
-  resolvedEnd: number | null;
-  originalIndex: number;
-}
-
 interface HistoryEntry {
   rewrite: string;
   changes: RawChange[];
   toggledChanges: Set<string>;
 }
 
-interface Analysis {
-  register: string;
-  tone: string;
-  notes?: string;
-}
-
-interface AnalysisResult {
-  analysis: Analysis;
-  rewrite: string;
-  changes: RawChange[];
-}
-
-interface LexisError {
-  message: string;
-  code?: string;
-}
-
-// Errors the writer fixes from the Keys panel.
-const KEY_ERROR_CODES = new Set(["missing_key", "invalid_key", "key_mismatch", "permission", "quota"]);
-
-class ApiError extends Error {
-  code?: string;
-  constructor(message: string, code?: string) {
-    super(message);
-    this.code = code;
-  }
-}
-
-function toLexisError(caught: unknown, fallback: string): LexisError {
-  if (caught instanceof ApiError) return { message: caught.message, code: caught.code };
-  // fetch() rejects with a TypeError when the Lexis server can't be reached.
-  if (caught instanceof TypeError) {
-    return { message: "Couldn't reach the Lexis server. Check that the backend is running.", code: "server_unreachable" };
-  }
-  if (caught instanceof SyntaxError) {
-    return { message: "The editor's reply came back garbled. Send again.", code: "bad_response" };
-  }
-  return { message: fallback };
-}
-
-interface Segment {
-  type: "plain" | "highlight";
-  text: string;
-  change?: SanitizedChange;
-}
 
 function textSimilarity(a: string, b: string): number {
   if (a === b) return 1;
@@ -215,168 +183,6 @@ function isEditableTarget(target: EventTarget | null) {
   return !!target.closest("input, textarea, select, [contenteditable='true']") || target.isContentEditable;
 }
 
-function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number) {
-  return aStart < bEnd && bStart < aEnd;
-}
-
-function findOccurrenceCandidates(text: string, needle: string) {
-  const indices: number[] = [];
-  if (!needle) return indices;
-  let fromIndex = 0;
-  while (fromIndex <= text.length) {
-    const index = text.indexOf(needle, fromIndex);
-    if (index === -1) break;
-    indices.push(index);
-    fromIndex = index + Math.max(1, needle.length);
-  }
-  return indices;
-}
-
-function sanitizeChanges(rewrite: string, changes: RawChange[]): SanitizedChange[] {
-  if (!changes.length) return [];
-
-  const usedRanges: Array<{ start: number; end: number }> = [];
-  const sanitized: SanitizedChange[] = new Array(changes.length);
-  const indices = changes
-    .map((change, index) => ({ change, index }))
-    .sort((a, b) => a.change.start - b.change.start || a.index - b.index);
-
-  for (const { change, index } of indices) {
-    let resolvedStart: number | null = null;
-    let resolvedEnd: number | null = null;
-    const hintedStart = Number.isFinite(change.start) ? Math.max(0, change.start) : 0;
-    const hintedEnd = Number.isFinite(change.end) ? Math.max(hintedStart, change.end) : hintedStart;
-    const hintedMatches =
-      change.replacement &&
-      hintedEnd <= rewrite.length &&
-      rewrite.slice(hintedStart, hintedEnd) === change.replacement &&
-      !usedRanges.some((range) => rangesOverlap(hintedStart, hintedEnd, range.start, range.end));
-
-    if (hintedMatches) {
-      resolvedStart = hintedStart;
-      resolvedEnd = hintedEnd;
-    } else if (change.replacement) {
-      const replacementLength = change.replacement.length;
-      const candidates = findOccurrenceCandidates(rewrite, change.replacement)
-        .filter((candidateStart) => {
-          const candidateEnd = candidateStart + replacementLength;
-          return !usedRanges.some((range) =>
-            rangesOverlap(candidateStart, candidateEnd, range.start, range.end),
-          );
-        })
-        .map((candidateStart) => ({
-          start: candidateStart,
-          end: candidateStart + replacementLength,
-          distance: Math.abs(candidateStart - hintedStart),
-        }))
-        .sort((a, b) => a.distance - b.distance || a.start - b.start);
-
-      if (candidates.length > 0) {
-        resolvedStart = candidates[0].start;
-        resolvedEnd = candidates[0].end;
-      }
-    }
-
-    if (resolvedStart !== null && resolvedEnd !== null) {
-      usedRanges.push({ start: resolvedStart, end: resolvedEnd });
-    }
-
-    sanitized[index] = {
-      ...change,
-      key: `change-${index}-${resolvedStart ?? "na"}-${resolvedEnd ?? "na"}`,
-      resolvedStart,
-      resolvedEnd,
-      originalIndex: index,
-    };
-  }
-
-  return sanitized;
-}
-
-function buildSegments(rewrite: string, changes: SanitizedChange[]): Segment[] {
-  const resolvedChanges = changes
-    .filter(
-      (change): change is SanitizedChange & { resolvedStart: number; resolvedEnd: number } =>
-        change.resolvedStart !== null && change.resolvedEnd !== null,
-    )
-    .sort((a, b) => a.resolvedStart - b.resolvedStart);
-
-  if (!resolvedChanges.length) return [{ type: "plain", text: rewrite }];
-
-  const segments: Segment[] = [];
-  let cursor = 0;
-
-  for (const change of resolvedChanges) {
-    if (change.resolvedStart < cursor) continue;
-    if (change.resolvedStart > cursor) {
-      segments.push({ type: "plain", text: rewrite.slice(cursor, change.resolvedStart) });
-    }
-    segments.push({
-      type: "highlight",
-      text: rewrite.slice(change.resolvedStart, change.resolvedEnd),
-      change,
-    });
-    cursor = change.resolvedEnd;
-  }
-
-  if (cursor < rewrite.length) {
-    segments.push({ type: "plain", text: rewrite.slice(cursor) });
-  }
-
-  return segments;
-}
-
-function applyChangeToggles(rewrite: string, changes: SanitizedChange[], toggledChanges: Set<string>) {
-  let nextRewrite = rewrite;
-  const reversibleChanges = changes
-    .filter(
-      (change): change is SanitizedChange & { resolvedStart: number; resolvedEnd: number } =>
-        toggledChanges.has(change.key) &&
-        change.resolvedStart !== null &&
-        change.resolvedEnd !== null,
-    )
-    .sort((a, b) => b.resolvedStart - a.resolvedStart);
-
-  for (const change of reversibleChanges) {
-    nextRewrite =
-      nextRewrite.slice(0, change.resolvedStart) +
-      change.original +
-      nextRewrite.slice(change.resolvedEnd);
-  }
-
-  return nextRewrite;
-}
-
-// Pulls the "rewrite" string out of a JSON response that is still streaming,
-// so the proof can be set as the model writes it.
-function extractPartialRewrite(raw: string): string {
-  const match = raw.match(/"rewrite"\s*:\s*"/);
-  if (!match || match.index === undefined) return "";
-  const escapes: Record<string, string> = { n: "\n", t: "\t", r: "", b: "", f: "", '"': '"', "\\": "\\", "/": "/" };
-  let out = "";
-  let i = match.index + match[0].length;
-  while (i < raw.length) {
-    const ch = raw[i];
-    if (ch === '"') break;
-    if (ch === "\\") {
-      const next = raw[i + 1];
-      if (next === undefined) break;
-      if (next === "u") {
-        const hex = raw.slice(i + 2, i + 6);
-        if (hex.length < 4) break;
-        out += String.fromCharCode(Number.parseInt(hex, 16));
-        i += 6;
-        continue;
-      }
-      out += escapes[next] ?? next;
-      i += 2;
-      continue;
-    }
-    out += ch;
-    i++;
-  }
-  return out;
-}
 
 function modelLabel(provider: ProviderId, model: string) {
   return MODEL_OPTIONS[provider].find((option) => option.value === model)?.label ?? model;
@@ -435,6 +241,7 @@ function App() {
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [keysOpen, setKeysOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [mode, setMode] = useState<Mode>(() => (readStorage(STORAGE_KEYS.mode) === "folio" ? "folio" : "desk"));
   const [selectedProvider, setSelectedProvider] = useState<ProviderId>(() =>
     normalizeProvider(readStorage(STORAGE_KEYS.provider)),
   );
@@ -506,6 +313,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.effort, effort);
   }, [effort]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.mode, mode);
+  }, [mode]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.apiKeys, JSON.stringify(providerApiKeys));
@@ -1012,6 +823,28 @@ function App() {
             ) : null}
           </div>
 
+          <div className="lx-effort" role="radiogroup" aria-label="Mode">
+            <span className="lx-chip-label">Mode</span>
+            <button
+              role="radio"
+              aria-checked={mode === "desk"}
+              title="One passage, sent when you ask."
+              className={"lx-effort-key" + (mode === "desk" ? " is-on" : "")}
+              onClick={() => setMode("desk")}
+            >
+              Desk
+            </button>
+            <button
+              role="radio"
+              aria-checked={mode === "folio"}
+              title="Pro: long documents, Markdown import, paragraphs proofed as you type."
+              className={"lx-effort-key" + (mode === "folio" ? " is-on" : "")}
+              onClick={() => setMode("folio")}
+            >
+              Folio
+            </button>
+          </div>
+
           <div className="lx-effort" role="radiogroup" aria-label="Effort">
             <span className="lx-chip-label">Effort</span>
             {EFFORT_OPTIONS.map((option) => (
@@ -1030,9 +863,11 @@ function App() {
 
           <span className="lx-toolbar-spacer" />
 
-          <span className={"lx-status" + (streaming ? " is-busy" : "")} aria-live="polite">
-            {streaming ? "Setting type" : result ? `${sanitizedChanges.length} mark${sanitizedChanges.length !== 1 ? "s" : ""}` : ""}
-          </span>
+          {mode === "desk" ? (
+            <span className={"lx-status" + (streaming ? " is-busy" : "")} aria-live="polite">
+              {streaming ? "Setting type" : result ? `${sanitizedChanges.length} mark${sanitizedChanges.length !== 1 ? "s" : ""}` : ""}
+            </span>
+          ) : null}
 
           <button
             className="lx-link"
@@ -1089,6 +924,25 @@ function App() {
         </nav>
       </header>
 
+      {mode === "folio" ? (
+        <main className="lx-desk-folio">
+          <Folio
+            settings={{
+              apiUrl: API_URL,
+              provider: selectedProvider,
+              model: selectedModel,
+              effort,
+              apiKey: providerApiKeys[selectedProvider].trim(),
+              styleDirective,
+            }}
+            onStyleDirectiveChange={setStyleDirective}
+            onOpenKeys={() => {
+              setKeysOpen(true);
+              setSelectorOpen(false);
+            }}
+          />
+        </main>
+      ) : (
       <main className="lx-desk">
         <section
           className={"lx-sheet lx-manuscript" + (sentPulse ? " is-sent" : "")}
@@ -1304,6 +1158,7 @@ function App() {
           ) : null}
         </section>
       </main>
+      )}
 
       {helpOpen ? (
         <div className="lx-scrim" onClick={() => setHelpOpen(false)}>
