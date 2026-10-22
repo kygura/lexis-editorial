@@ -12,6 +12,19 @@ Lexis is a full-stack editorial rewriting app for prose. You paste text, choose 
 - Lets users toggle changes, edit the final rewrite, and use undo/redo
 - Streams the proof into view as the model writes it
 - Stores theme, provider, model, effort, style directive, and browser-side API keys locally
+- Folio mode (pro): an endless sheet for long documents, Markdown import and export, and paragraphs proofed live as you type
+
+## Folio Mode
+
+Switch **Mode** in the masthead from Desk to Folio. Desk sends one passage when you ask; Folio holds a whole document and works it paragraph by paragraph.
+
+- **Writing.** Each paragraph is its own block. Enter starts a new one, Shift + Enter breaks a line, Backspace at the start of a paragraph joins it to the one above, and the arrow keys move between paragraphs.
+- **Live proofing.** With Live on, a paragraph goes to the editor about a second after you stop typing, or as soon as you leave it. Its proof streams into the right column beside it. Editing a paragraph cancels its request in flight and dims its old proof until the new one lands. Ctrl/Cmd + Enter proofs the current paragraph right away.
+- **Context.** Each request carries the preceding text (up to 1,500 characters) and the next paragraph, so the editor keeps voice and continuity without rewriting the neighbours.
+- **Corpus import.** Import .md files or a whole folder, or drop files on the sheet. Files are read in natural order (`ch2` before `ch10`), YAML front matter is dropped, headings, rules, and fenced code stay verbatim and are never sent, and each file is labelled where it starts. Imported text is not sent automatically: Proof all queues every unproofed paragraph, three at a time, and asks first when there are more than 25.
+- **Reviewing.** Click a red mark to restore the original wording. Accept into manuscript replaces the paragraph with its proof; Keep original exports the manuscript instead of the proof.
+- **Export.** Export .md downloads the document with proofs applied, restorations and kept paragraphs honoured, and stale proofs skipped in favour of the newer manuscript.
+- **Limits.** Proofs are cached per paragraph, so unchanged text is never sent twice in a session. A rate-limited paragraph pauses the queue and retries up to three times; a key error stops the queue. The folio is saved in local storage, which holds a few megabytes; past that Lexis says so and you should export.
 
 ## Stack
 
@@ -28,7 +41,9 @@ Lexis is a full-stack editorial rewriting app for prose. You paste text, choose 
 |  |- app/main.py        # FastAPI app and streaming endpoints
 |  |- pyproject.toml     # Python package metadata and dependencies
 |- frontend/
-|  |- src/App.tsx        # Main single-page application
+|  |- src/App.tsx        # Main single-page application (Desk mode)
+|  |- src/Folio.tsx      # Folio mode: block editor and live proofing queue
+|  |- src/lib/           # Shared proof helpers and the Markdown splitter
 |  |- package.json       # Frontend scripts and dependencies
 |- start.sh              # Starts backend and frontend together
 |- vercel.json           # Vercel multi-service configuration
@@ -121,9 +136,13 @@ Request body:
   "provider": "openai",
   "model": "gpt-6.1-sol",
   "api_key": "optional override",
-  "effort": "medium"
+  "effort": "medium",
+  "context_before": "optional preceding text",
+  "context_after": "optional following text"
 }
 ```
+
+`context_before` and `context_after` are optional. Folio mode uses them to send the text around a paragraph, which the editor reads for continuity but does not rewrite.
 
 `effort` is `low`, `medium` (default), or `high`. It maps to `reasoning_effort` on OpenAI and `output_config.effort` on Anthropic. Current models from both providers reject custom sampling temperature, so there is no temperature setting.
 

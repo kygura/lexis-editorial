@@ -1,0 +1,344 @@
+/* ---------- Folio: one long sheet, manuscript and proof side by side ---------- */
+
+.lx-desk-folio {
+  flex: 1;
+  padding: clamp(16px, 3vw, 36px) clamp(16px, 4vw, 48px) 48px;
+}
+
+.lx-folio {
+  --gutter: 92px;
+  min-height: calc(100vh - 210px);
+  padding-top: 0;
+}
+
+.lx-folio-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: grid;
+  gap: 10px;
+  margin: 0 calc(-1 * clamp(20px, 3.5vw, 52px));
+  padding: 18px clamp(20px, 3.5vw, 52px) 12px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+}
+
+.lx-folio-bar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+
+.lx-folio-controls .lx-effort-key {
+  min-width: 72px;
+}
+
+.lx-folio-brief {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.lx-folio-brief .lx-input {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.lx-folio-note {
+  margin: 0;
+  font-style: italic;
+  font-family: var(--font-proof);
+  font-size: 14px;
+}
+
+.lx-folio-note.is-warning {
+  color: var(--pencil);
+}
+
+.lx-folio-notice {
+  margin: 0;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.lx-folio-notice-actions {
+  display: flex;
+  gap: 16px;
+}
+
+.lx-folio-columns,
+.lx-folio-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--gutter) minmax(0, 1fr);
+  column-gap: clamp(12px, 2vw, 28px);
+}
+
+.lx-folio-columns {
+  padding: 18px 0 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px dashed var(--rule);
+}
+
+.lx-folio-body {
+  padding-bottom: 40vh;
+}
+
+.lx-folio-row {
+  position: relative;
+  align-items: start;
+  padding: 10px 0;
+  /* Off-screen rows skip layout and paint, which keeps a long corpus fluid. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+
+.lx-folio-row + .lx-folio-row {
+  border-top: 1px solid transparent;
+}
+
+.lx-folio-row:focus-within {
+  background: linear-gradient(to right, var(--pencil-wash), transparent 45%);
+}
+
+.lx-folio-row.is-wide .lx-folio-grow {
+  grid-column: 1 / -1;
+}
+
+.lx-folio-source {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 18px 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.lx-folio-source::before,
+.lx-folio-source::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+.lx-folio-source span {
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Auto-growing textarea: a hidden copy of the text sizes the grid cell. */
+.lx-folio-grow {
+  display: grid;
+  min-width: 0;
+}
+
+.lx-folio-grow::after {
+  content: attr(data-value) " ";
+  visibility: hidden;
+}
+
+.lx-folio-grow::after,
+.lx-folio-input {
+  grid-area: 1 / 1 / 2 / 2;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-type);
+  font-size: 16px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.lx-folio-input {
+  width: 100%;
+  overflow: hidden;
+  resize: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--ink);
+  caret-color: var(--pencil);
+}
+
+.lx-folio-input::placeholder {
+  color: var(--ink-faint);
+  opacity: 0.8;
+}
+
+.lx-folio-row.is-heading .lx-folio-grow::after,
+.lx-folio-row.is-heading .lx-folio-input {
+  padding-top: 14px;
+  font-family: var(--font-proof);
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.lx-folio-row.is-code .lx-folio-grow::after,
+.lx-folio-row.is-code .lx-folio-input,
+.lx-folio-row.is-rule .lx-folio-input {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.lx-folio-row.is-code .lx-folio-grow {
+  padding: 8px 12px;
+  background: var(--desk);
+  border-left: 2px solid var(--rule);
+}
+
+.lx-folio-row.is-rule .lx-folio-input {
+  text-align: center;
+  letter-spacing: 0.4em;
+}
+
+.lx-folio-state {
+  justify-self: center;
+  min-height: 1.75em;
+  padding: 3px 0 0;
+  background: none;
+  border: none;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--ink-faint);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.lx-folio-state:disabled {
+  cursor: default;
+}
+
+.lx-folio-state:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.lx-folio-state.is-busy {
+  color: var(--pencil);
+}
+
+.lx-folio-state.is-busy::after {
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 4px;
+  vertical-align: -2px;
+  background: currentColor;
+  animation: lx-blink 1s steps(1) infinite;
+}
+
+.lx-folio-state.is-error {
+  color: var(--pencil);
+}
+
+.lx-folio-out {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lx-folio-proof {
+  margin: 0;
+  font-family: var(--font-proof);
+  font-size: 18.5px;
+  font-optical-sizing: auto;
+  line-height: 1.6;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  text-wrap: pretty;
+  font-feature-settings: "liga", "onum", "kern";
+  transition: opacity 0.2s;
+}
+
+.lx-folio-proof.is-stale {
+  opacity: 0.45;
+}
+
+.lx-folio-proof.is-kept {
+  opacity: 0.55;
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-faint);
+  text-decoration-thickness: 1px;
+}
+
+.lx-folio-proof .lx-mark::after {
+  content: none;
+}
+
+.lx-folio-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.lx-folio-row:hover .lx-folio-row-actions,
+.lx-folio-row:focus-within .lx-folio-row-actions {
+  opacity: 1;
+}
+
+.lx-folio-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--paper) 86%, transparent);
+  border: 2px dashed var(--pencil);
+  pointer-events: none;
+  animation: lx-fade 0.12s ease;
+}
+
+.lx-folio-drop span {
+  font-family: var(--font-proof);
+  font-size: 22px;
+  font-style: italic;
+  color: var(--pencil);
+}
+
+@media (hover: none) {
+  .lx-folio-row-actions {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 960px) {
+  .lx-folio-columns {
+    display: none;
+  }
+
+  .lx-folio-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-auto-flow: row dense;
+    row-gap: 6px;
+    padding: 14px 0;
+    border-bottom: 1px dashed var(--rule);
+  }
+
+  .lx-folio-grow {
+    grid-column: 1 / -1;
+  }
+
+  .lx-folio-state {
+    grid-column: 2;
+  }
+
+  .lx-folio-out {
+    grid-column: 1;
+  }
+}
