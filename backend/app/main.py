@@ -3,6 +3,8 @@ import os
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 
+import anthropic
+import openai
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -85,7 +87,7 @@ class AnalyzeRequest(BaseModel):
     provider: str | None = None
     model: str | None = None
     api_key: str | None = None
-    temperature: float | None = None
+    effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -94,7 +96,7 @@ class ProviderConfig:
     default_model_env: str
     fallback_model: str
     model_aliases: dict[str, list[str]]
-    streamer: Callable[[str, str, str, str, float], AsyncIterator[str]]
+    streamer: Callable[[str, str, str, str, str], AsyncIterator[str]]
 
 
 def build_system_prompt(style_directive: str = "") -> str:
@@ -117,19 +119,51 @@ def resolve_default_model(provider: str) -> str:
     return os.getenv(config.default_model_env, os.getenv("DEFAULT_MODEL", config.fallback_model))
 
 
+PROVIDER_LABELS = {"openai": "OpenAI", "anthropic": "Anthropic"}
+
+
+class LexisError(Exception):
+    """An error with a message written for the person using Lexis."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def guess_key_provider(api_key: str) -> str | None:
+    if api_key.startswith("sk-ant-"):
+        return "anthropic"
+    if api_key.startswith("sk-"):
+        return "openai"
+    return None
+
+
 def resolve_provider_settings(payload: AnalyzeRequest) -> tuple[str, str, str]:
     provider = (payload.provider or resolve_default_provider()).strip().lower()
     if provider not in PROVIDER_REGISTRY:
-        raise ValueError(f"Unsupported provider: {provider}")
+        raise LexisError("bad_request", f"Unsupported provider: {provider}")
 
     config = PROVIDER_REGISTRY[provider]
+    label = PROVIDER_LABELS[provider]
     api_key = (payload.api_key or "").strip() or os.getenv(config.api_key_env, "").strip()
     if not api_key:
-        raise ValueError(f"Missing API key for provider '{provider}'")
+        raise LexisError(
+            "missing_key",
+            f"No {label} API key is set. Add one under Keys, or set {config.api_key_env} on the server.",
+        )
+
+    key_provider = guess_key_provider(api_key)
+    if key_provider and key_provider != provider:
+        raise LexisError(
+            "key_mismatch",
+            f"That looks like an {PROVIDER_LABELS[key_provider]} key, but you've picked an {label} model. "
+            f"Paste an {label} key under Keys, or switch to an {PROVIDER_LABELS[key_provider]} model.",
+        )
 
     model = (payload.model or "").strip() or resolve_default_model(provider)
     if not model:
-        raise ValueError(f"Missing model for provider '{provider}'")
+        raise LexisError("bad_request", f"No model is set for {label}. Pick one from the editor list.")
 
     return provider, model, api_key
 
@@ -144,10 +178,53 @@ def resolve_model_candidates(provider: str, model: str) -> list[str]:
     return unique_candidates
 
 
-def resolve_temperature(payload: AnalyzeRequest) -> float:
-    if payload.temperature is None:
-        return 0.7
-    return min(2.0, max(0.0, payload.temperature))
+EFFORT_LEVELS = ("low", "medium", "high")
+DEFAULT_EFFORT = "medium"
+
+
+def resolve_effort(effort: str | None) -> str:
+    # Current OpenAI and Anthropic models reject custom sampling temperature;
+    # reasoning effort is the shared dial for how hard the model works a passage.
+    value = (effort or "").strip().lower()
+    return value if value in EFFORT_LEVELS else DEFAULT_EFFORT
+
+
+def describe_error(exc: Exception, provider: str | None, model: str | None) -> dict[str, str]:
+    # Provider SDK errors echo raw JSON and a masked key; translate them into
+    # something the writer can act on.
+    if isinstance(exc, LexisError):
+        return {"error": exc.message, "code": exc.code}
+
+    label = PROVIDER_LABELS.get(provider or "", "The provider")
+    if isinstance(exc, (openai.AuthenticationError, anthropic.AuthenticationError)):
+        return {
+            "error": f"{label} rejected the API key. It may be mistyped, revoked, or from another account. Check it under Keys.",
+            "code": "invalid_key",
+        }
+    if isinstance(exc, (openai.PermissionDeniedError, anthropic.PermissionDeniedError)):
+        return {
+            "error": f"This {label} key doesn't have access to {model or 'this model'}. Check the key's project permissions, or pick another model.",
+            "code": "permission",
+        }
+    if isinstance(exc, (openai.NotFoundError, anthropic.NotFoundError)):
+        return {
+            "error": f"{label} doesn't offer the model \u201c{model}\u201d to this key. Pick another model.",
+            "code": "model_not_found",
+        }
+    if isinstance(exc, (openai.RateLimitError, anthropic.RateLimitError)):
+        if getattr(exc, "code", None) == "insufficient_quota":
+            return {
+                "error": f"This {label} account is out of credit. Add billing on the provider's dashboard, or use another key.",
+                "code": "quota",
+            }
+        return {"error": f"{label} is rate-limiting this key. Wait a moment and send again.", "code": "rate_limit"}
+    if isinstance(exc, (openai.APIConnectionError, anthropic.APIConnectionError)):
+        return {"error": f"Couldn't reach {label}. Check the server's network and try again.", "code": "connection"}
+    if isinstance(exc, (openai.APIStatusError, anthropic.APIStatusError)):
+        return {"error": f"{label} returned an error ({exc.status_code}). Try again in a moment.", "code": "provider"}
+    if isinstance(exc, RuntimeError):
+        return {"error": str(exc), "code": "provider"}
+    return {"error": "Something went wrong while rewriting. Try again.", "code": "unknown"}
 
 
 def is_model_unavailable_error(exc: Exception) -> bool:
@@ -169,25 +246,30 @@ async def stream_openai_completion(
     model: str,
     system_prompt: str,
     user_prompt: str,
-    temperature: float,
+    effort: str,
 ) -> AsyncIterator[str]:
-    client = AsyncOpenAI(api_key=api_key)
-    stream = await client.chat.completions.create(
-        model=model,
-        temperature=temperature,
-        stream=True,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-    )
+    async with AsyncOpenAI(api_key=api_key) as client:
+        stream = await client.chat.completions.create(
+            model=model,
+            reasoning_effort=effort,
+            stream=True,
+            messages=[
+                {"role": "developer", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
 
-    async for chunk in stream:
-        if not chunk.choices:
-            continue
-        delta = chunk.choices[0].delta
-        if delta.content:
-            yield delta.content
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if delta.content:
+                yield delta.content
+
+
+# Models that accept `fallbacks: "default"`: a safety-classifier decline is
+# retried server-side on Anthropic's recommended model instead of failing.
+ANTHROPIC_SERVER_FALLBACK_MODELS = {"claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5"}
 
 
 async def stream_anthropic_completion(
@@ -195,59 +277,45 @@ async def stream_anthropic_completion(
     model: str,
     system_prompt: str,
     user_prompt: str,
-    temperature: float,
+    effort: str,
 ) -> AsyncIterator[str]:
-    client = AsyncAnthropic(api_key=api_key)
-    async with client.messages.stream(
-        model=model,
-        max_tokens=8192,
-        temperature=temperature,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
-    ) as stream:
-        async for text in stream.text_stream:
-            if text:
-                yield text
+    extra: dict = {}
+    if model in ANTHROPIC_SERVER_FALLBACK_MODELS:
+        extra = {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
+
+    async with AsyncAnthropic(api_key=api_key) as client:
+        async with client.beta.messages.stream(
+            model=model,
+            max_tokens=32000,
+            output_config={"effort": effort},
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+            **extra,
+        ) as stream:
+            async for text in stream.text_stream:
+                if text:
+                    yield text
+            final = await stream.get_final_message()
+
+    if final.stop_reason == "refusal":
+        raise RuntimeError("The editor declined to rewrite this passage.")
+    if final.stop_reason == "max_tokens":
+        raise RuntimeError("The rewrite ran past the output limit. Try a shorter passage.")
 
 
 PROVIDER_REGISTRY: dict[str, ProviderConfig] = {
     "openai": ProviderConfig(
         api_key_env="OPENAI_API_KEY",
         default_model_env="DEFAULT_OPENAI_MODEL",
-        fallback_model="gpt-5.4",
+        fallback_model="gpt-6.1-sol",
         model_aliases={},
         streamer=stream_openai_completion,
     ),
     "anthropic": ProviderConfig(
         api_key_env="ANTHROPIC_API_KEY",
         default_model_env="DEFAULT_ANTHROPIC_MODEL",
-        fallback_model="claude-sonnet-4-6",
-        model_aliases={
-            "claude-opus-4-6": [
-                "claude-opus-4-6",
-                "claude-opus-4-1-20250805",
-            ],
-            "claude-opus-4-6-latest": [
-                "claude-opus-4-6",
-                "claude-opus-4-1-20250805",
-            ],
-            "claude-opus-4-1": [
-                "claude-opus-4-1",
-                "claude-opus-4-1-20250805",
-            ],
-            "claude-sonnet-4-6": [
-                "claude-sonnet-4-6",
-                "claude-sonnet-4-20250514",
-            ],
-            "claude-sonnet-4-6-latest": [
-                "claude-sonnet-4-6",
-                "claude-sonnet-4-20250514",
-            ],
-            "claude-sonnet-4-5": [
-                "claude-sonnet-4-5",
-                "claude-sonnet-4-20250514",
-            ],
-        },
+        fallback_model="claude-opus-5-5",
+        model_aliases={},
         streamer=stream_anthropic_completion,
     ),
 }
@@ -266,7 +334,7 @@ class VariationsRequest(BaseModel):
     provider: str | None = None
     model: str | None = None
     api_key: str | None = None
-    temperature: float | None = None
+    effort: str | None = None
 
 
 @app.get("/healthz")
@@ -292,6 +360,8 @@ async def variations(payload: VariationsRequest):
     )
 
     async def stream_response():
+        provider: str | None = payload.provider
+        model: str | None = payload.model
         try:
             provider, model, api_key = resolve_provider_settings(
                 AnalyzeRequest(
@@ -300,15 +370,9 @@ async def variations(payload: VariationsRequest):
                     provider=payload.provider,
                     model=payload.model,
                     api_key=payload.api_key,
-                    temperature=payload.temperature,
                 )
             )
-            temperature = resolve_temperature(
-                AnalyzeRequest(
-                    text="x",
-                    temperature=payload.temperature,
-                )
-            )
+            effort = resolve_effort(payload.effort)
             streamer = PROVIDER_REGISTRY[provider].streamer
             candidates = resolve_model_candidates(provider, model)
             last_error: Exception | None = None
@@ -320,7 +384,7 @@ async def variations(payload: VariationsRequest):
                         candidate_model,
                         VARIATIONS_SYSTEM_PROMPT,
                         user_prompt,
-                        temperature,
+                        effort,
                     ):
                         yield sse_payload({"text": delta})
                     yield "data: [DONE]\n\n"
@@ -334,7 +398,7 @@ async def variations(payload: VariationsRequest):
             if last_error is not None:
                 raise last_error
         except Exception as exc:
-            yield sse_payload({"error": str(exc)})
+            yield sse_payload(describe_error(exc, provider, model))
 
     return StreamingResponse(
         stream_response(),
@@ -360,9 +424,11 @@ async def analyze(payload: AnalyzeRequest):
     user_prompt = f'\n\n"{text}"'
 
     async def stream_response():
+        provider: str | None = payload.provider
+        model: str | None = payload.model
         try:
             provider, model, api_key = resolve_provider_settings(payload)
-            temperature = resolve_temperature(payload)
+            effort = resolve_effort(payload.effort)
             streamer = PROVIDER_REGISTRY[provider].streamer
             candidates = resolve_model_candidates(provider, model)
             last_error: Exception | None = None
@@ -374,7 +440,7 @@ async def analyze(payload: AnalyzeRequest):
                         candidate_model,
                         system_prompt,
                         user_prompt,
-                        temperature,
+                        effort,
                     ):
                         yield sse_payload({"text": delta})
                     yield "data: [DONE]\n\n"
@@ -388,7 +454,7 @@ async def analyze(payload: AnalyzeRequest):
             if last_error is not None:
                 raise last_error
         except Exception as exc:  # pragma: no cover - surfaced to client
-            yield sse_payload({"error": str(exc)})
+            yield sse_payload(describe_error(exc, provider, model))
 
     return StreamingResponse(
         stream_response(),

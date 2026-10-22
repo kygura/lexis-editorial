@@ -12,93 +12,104 @@ const STORAGE_KEYS = {
   style: "lexis-style-directive",
   provider: "lexis-provider",
   model: "lexis-model",
-  temperature: "lexis-temperature",
+  effort: "lexis-effort",
   apiKeys: "lexis-api-keys",
   guideSeen: "lexis-guide-seen",
 } as const;
 
 const MODEL_OPTIONS = {
   openai: [
-    { value: "gpt-5.4", label: "GPT-5.4", defaultTemperature: 0.7 },
-    { value: "gpt-4.1", label: "GPT-4.1", defaultTemperature: 0.7 },
-    { value: "gpt-4o", label: "GPT-4o", defaultTemperature: 0.7 },
+    { value: "gpt-6.1-sol", label: "GPT-6.1 Sol", note: "Flagship. Balanced, quick, exacting." },
+    { value: "gpt-6-astra", label: "GPT-6 Astra", note: "Deepest reasoning. Slow, meticulous." },
+    { value: "gpt-5.6-terra", label: "GPT-5.6 Terra", note: "Even-handed, between Sol and Luna." },
+    { value: "gpt-6-luna", label: "GPT-6 Luna", note: "Light and fast for short passages." },
   ],
   anthropic: [
-    { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", defaultTemperature: 0.7 },
-    { value: "claude-opus-4-6", label: "Claude Opus 4.6", defaultTemperature: 0.7 },
-    { value: "claude-opus-4-1-20250805", label: "Claude Opus 4.1", defaultTemperature: 0.7 },
-    { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4", defaultTemperature: 0.7 },
-    { value: "claude-3-7-sonnet-latest", label: "Claude 3.7 Sonnet", defaultTemperature: 0.7 },
+    { value: "claude-opus-5-5", label: "Claude Opus 5.5", note: "Literary range with a fine ear for voice." },
+    { value: "claude-fable-5-1", label: "Claude Fable 5.1", note: "Most capable. Long, demanding pieces." },
+    { value: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", note: "Fast and capable for everyday drafts." },
+    { value: "claude-haiku-5-5", label: "Claude Haiku 5.5", note: "Swift, light-touch line edits." },
   ],
 } as const;
 
+const PROVIDER_LABELS = { openai: "OpenAI", anthropic: "Anthropic" } as const;
+
+const EFFORT_OPTIONS = [
+  { value: "low", label: "Light", hint: "A quick pass over the line." },
+  { value: "medium", label: "Close", hint: "A careful read, sentence by sentence." },
+  { value: "high", label: "Deep", hint: "Slow, deliberate, willing to rebuild." },
+] as const;
+
+type Effort = (typeof EFFORT_OPTIONS)[number]["value"];
+const DEFAULT_EFFORT: Effort = "medium";
+
 const GUIDE_SECTIONS = [
   {
-    eyebrow: "Start",
-    title: "Write and send",
-    description: "Use the left panel for your source text. Lexis only rewrites after you send it.",
+    eyebrow: "I",
+    title: "Type the manuscript",
+    description: "The left sheet holds your draft. Nothing is sent until you ask.",
     bullets: [
-      "Paste or type at least 8 characters into Your text.",
-      "Press Send or Ctrl/Cmd + Enter to generate a rewrite.",
-      "The right panel updates only after a command is sent.",
+      "Paste or type at least 8 characters.",
+      "Press Send to editor, or Ctrl/Cmd + Enter.",
+      "The proof sets itself line by line as the editor writes.",
     ],
   },
   {
-    eyebrow: "Configuration",
-    title: "Pick the model and provider",
-    description: "The provider/model label in the top bar opens the model picker.",
+    eyebrow: "II",
+    title: "Choose your editor",
+    description: "The model name in the masthead opens the roster.",
     bullets: [
-      "Choose between available OpenAI and Anthropic models.",
-      "Your selected provider, model, style, temperature, theme, and keys are saved locally.",
+      "Pick from the current OpenAI and Anthropic models.",
+      "Model, effort, brief, theme, and keys are saved in this browser.",
     ],
   },
   {
-    eyebrow: "Keys",
-    title: "Add provider API keys",
-    description: "The Keys button in the top bar lets you set per-provider API keys for this browser.",
+    eyebrow: "III",
+    title: "Leave keys at the desk",
+    description: "Keys in the masthead stores a per-provider API key locally.",
     bullets: [
-      "Paste a key under OpenAI or Anthropic to use it for requests.",
-      "Use Clear to remove a saved key and fall back to the server-side default, if one exists.",
+      "Paste a key to use it for your requests.",
+      "Clear it to fall back to the server's key, if one is set.",
     ],
   },
   {
-    eyebrow: "Style",
-    title: "Shape the rewrite",
-    description: "Open Style directive to steer voice, cadence, constraints, or literary references.",
+    eyebrow: "IV",
+    title: "Write the brief",
+    description: "The editor's brief steers voice, cadence, and constraints.",
     bullets: [
-      "Examples: make it tighter, more formal, more lyrical, or imitate a certain register.",
-      "Adjust Temperature to control how conservative or adventurous the phrasing should be.",
-      "Lower temperature is steadier; higher temperature explores more variation.",
+      "Try: tighter, more formal, more lyrical, or a named register.",
+      "Effort sets how hard the editor works: Light, Close, or Deep.",
+      "Deep takes longer and rebuilds more freely.",
     ],
   },
   {
-    eyebrow: "Review",
-    title: "Inspect and refine changes",
-    description: "Changed text is highlighted in the rewrite panel so you can review individual edits.",
+    eyebrow: "V",
+    title: "Read the red pencil",
+    description: "Every change is marked in the proof and numbered in the margin notes.",
     bullets: [
-      "Click highlighted text to compare Original and Edited wording.",
-      "Use Generate under Variations to ask for alternate phrasings for a specific change.",
-      "Choose a variation or toggle back to the original wording change by change.",
+      "Click a marked phrase to compare the original and the edit.",
+      "Ask for variations to see four other ways to say it.",
+      "Click a margin note to restore your original wording.",
     ],
   },
   {
-    eyebrow: "Iteration",
-    title: "Edit, copy, and regenerate",
-    description: "Once a rewrite appears, the right panel gives you a few ways to keep working.",
+    eyebrow: "VI",
+    title: "Revise and keep",
+    description: "The proof is yours to work on once it is set.",
     bullets: [
-      "Regenerate sends the current source text again with the current settings.",
-      "Edit opens a manual editing mode for the full rewrite; Save stores your manual revision.",
-      "Copy copies the current visible rewrite, including any toggled changes.",
-      "Undo and Redo work for accepted variations, toggled changes, and saved edits.",
+      "Reset sends the manuscript again with current settings.",
+      "Edit opens the proof for hand corrections; Save keeps them.",
+      "Copy takes the proof as shown, restorations included.",
+      "Undo and Redo cover variations, restorations, and saved edits.",
     ],
   },
 ] as const;
 
 const GUIDE_SHORTCUTS = [
-  { keys: "Ctrl/Cmd + Enter", action: "Send the source text" },
-  { keys: "Ctrl/Cmd + Z", action: "Undo the last rewrite-side action" },
-  { keys: "Ctrl/Cmd + Shift + Z", action: "Redo the last undone rewrite-side action" },
-  { keys: "Esc", action: "Close open panels or the guide" },
+  { keys: "Ctrl/Cmd + Enter", action: "Send the manuscript" },
+  { keys: "Ctrl/Cmd + Z", action: "Undo the last proof change" },
+  { keys: "Ctrl/Cmd + Shift + Z", action: "Redo" },
+  { keys: "Esc", action: "Close panels or the guide" },
 ] as const;
 
 type ProviderId = keyof typeof MODEL_OPTIONS;
@@ -137,6 +148,34 @@ interface AnalysisResult {
   changes: RawChange[];
 }
 
+interface LexisError {
+  message: string;
+  code?: string;
+}
+
+// Errors the writer fixes from the Keys panel.
+const KEY_ERROR_CODES = new Set(["missing_key", "invalid_key", "key_mismatch", "permission", "quota"]);
+
+class ApiError extends Error {
+  code?: string;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+function toLexisError(caught: unknown, fallback: string): LexisError {
+  if (caught instanceof ApiError) return { message: caught.message, code: caught.code };
+  // fetch() rejects with a TypeError when the Lexis server can't be reached.
+  if (caught instanceof TypeError) {
+    return { message: "Couldn't reach the Lexis server. Check that the backend is running.", code: "server_unreachable" };
+  }
+  if (caught instanceof SyntaxError) {
+    return { message: "The editor's reply came back garbled. Send again.", code: "bad_response" };
+  }
+  return { message: fallback };
+}
+
 interface Segment {
   type: "plain" | "highlight";
   text: string;
@@ -167,9 +206,8 @@ function textSimilarity(a: string, b: string): number {
   return (2.0 * matches) / (longer.length + shorter.length - 2 * (windowSize - 1));
 }
 
-function clampTemperature(value: number) {
-  if (Number.isNaN(value)) return 0.7;
-  return Math.min(2, Math.max(0, value));
+function normalizeEffort(value: string | null): Effort {
+  return EFFORT_OPTIONS.some((option) => option.value === value) ? (value as Effort) : DEFAULT_EFFORT;
 }
 
 function isEditableTarget(target: EventTarget | null) {
@@ -309,10 +347,39 @@ function applyChangeToggles(rewrite: string, changes: SanitizedChange[], toggled
   return nextRewrite;
 }
 
-function allModelOptions() {
-  return (Object.entries(MODEL_OPTIONS) as Array<[ProviderId, (typeof MODEL_OPTIONS)[ProviderId]]>).flatMap(
-    ([provider, options]) => options.map((option) => ({ ...option, provider })),
-  );
+// Pulls the "rewrite" string out of a JSON response that is still streaming,
+// so the proof can be set as the model writes it.
+function extractPartialRewrite(raw: string): string {
+  const match = raw.match(/"rewrite"\s*:\s*"/);
+  if (!match || match.index === undefined) return "";
+  const escapes: Record<string, string> = { n: "\n", t: "\t", r: "", b: "", f: "", '"': '"', "\\": "\\", "/": "/" };
+  let out = "";
+  let i = match.index + match[0].length;
+  while (i < raw.length) {
+    const ch = raw[i];
+    if (ch === '"') break;
+    if (ch === "\\") {
+      const next = raw[i + 1];
+      if (next === undefined) break;
+      if (next === "u") {
+        const hex = raw.slice(i + 2, i + 6);
+        if (hex.length < 4) break;
+        out += String.fromCharCode(Number.parseInt(hex, 16));
+        i += 6;
+        continue;
+      }
+      out += escapes[next] ?? next;
+      i += 2;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+function modelLabel(provider: ProviderId, model: string) {
+  return MODEL_OPTIONS[provider].find((option) => option.value === model)?.label ?? model;
 }
 
 function defaultModelFor(provider: ProviderId) {
@@ -321,11 +388,6 @@ function defaultModelFor(provider: ProviderId) {
 
 function normalizeProvider(value: string | null): ProviderId {
   return value === "anthropic" ? "anthropic" : "openai";
-}
-
-function defaultTemperatureForModel(provider: ProviderId, model: string) {
-  const option = MODEL_OPTIONS[provider].find((candidate) => candidate.value === model);
-  return clampTemperature(option?.defaultTemperature ?? 0.7);
 }
 
 function emptyProviderKeys(): ProviderKeyMap {
@@ -345,25 +407,48 @@ function normalizeProviderKeys(value: unknown): ProviderKeyMap {
   };
 }
 
+function readStorage(key: string) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+const TODAY = new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+
 function App() {
   const [input, setInput] = useState("");
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [streaming, setStreaming] = useState(false);
+  const [streamPreview, setStreamPreview] = useState("");
   const [activeChangeKey, setActiveChangeKey] = useState<string | null>(null);
   const [modalPos, setModalPos] = useState<{ x: number; y: number; yAbove: number } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [dark, setDark] = useState(true);
+  const [error, setError] = useState<LexisError | null>(null);
+  const [varError, setVarError] = useState<string | null>(null);
+  const [sentPulse, setSentPulse] = useState(false);
+  const [dark, setDark] = useState(() => readStorage(STORAGE_KEYS.theme) === "dark");
   const [copied, setCopied] = useState(false);
   const [toggledChanges, setToggledChanges] = useState<Set<string>>(new Set());
-  const [styleDirective, setStyleDirective] = useState("");
+  const [styleDirective, setStyleDirective] = useState(() => readStorage(STORAGE_KEYS.style) ?? "");
   const [styleOpen, setStyleOpen] = useState(false);
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [keysOpen, setKeysOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<ProviderId>("openai");
-  const [selectedModel, setSelectedModel] = useState<string>(defaultModelFor("openai"));
-  const [temperature, setTemperature] = useState(defaultTemperatureForModel("openai", defaultModelFor("openai")));
-  const [providerApiKeys, setProviderApiKeys] = useState<ProviderKeyMap>(emptyProviderKeys());
+  const [selectedProvider, setSelectedProvider] = useState<ProviderId>(() =>
+    normalizeProvider(readStorage(STORAGE_KEYS.provider)),
+  );
+  const [selectedModel, setSelectedModel] = useState<string>(
+    () => readStorage(STORAGE_KEYS.model) || defaultModelFor(normalizeProvider(readStorage(STORAGE_KEYS.provider))),
+  );
+  const [effort, setEffort] = useState<Effort>(() => normalizeEffort(readStorage(STORAGE_KEYS.effort)));
+  const [providerApiKeys, setProviderApiKeys] = useState<ProviderKeyMap>(() => {
+    try {
+      return normalizeProviderKeys(JSON.parse(readStorage(STORAGE_KEYS.apiKeys) || "null"));
+    } catch {
+      return emptyProviderKeys();
+    }
+  });
   const [editMode, setEditMode] = useState(false);
   const [editedText, setEditedText] = useState("");
   const [varLoading, setVarLoading] = useState(false);
@@ -375,10 +460,10 @@ function App() {
   const modalRef = useRef<HTMLDivElement | null>(null);
   const selectorRef = useRef<HTMLDivElement | null>(null);
   const keysRef = useRef<HTMLDivElement | null>(null);
-  const styleRef = useRef("");
-  const providerRef = useRef<ProviderId>("openai");
-  const modelRef = useRef<string>(defaultModelFor("openai"));
-  const temperatureRef = useRef(defaultTemperatureForModel("openai", defaultModelFor("openai")));
+  const styleRef = useRef(styleDirective);
+  const providerRef = useRef<ProviderId>(selectedProvider);
+  const modelRef = useRef<string>(selectedModel);
+  const effortRef = useRef<Effort>(effort);
   const apiKeyRef = useRef("");
   const cachedResultRef = useRef<AnalysisResult | null>(null);
   const cachedInputRef = useRef("");
@@ -392,33 +477,9 @@ function App() {
   const activeChange =
     sanitizedChanges.find((change) => change.key === activeChangeKey) ?? null;
   const segments = result ? buildSegments(result.rewrite, sanitizedChanges) : [];
+  const changeNumbers = new Map(sanitizedChanges.map((change, index) => [change.key, index + 1]));
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem(STORAGE_KEYS.theme);
-    const savedStyle = localStorage.getItem(STORAGE_KEYS.style);
-    const savedProvider = normalizeProvider(localStorage.getItem(STORAGE_KEYS.provider));
-    const savedModel = localStorage.getItem(STORAGE_KEYS.model);
-    const savedTemperature = Number.parseFloat(localStorage.getItem(STORAGE_KEYS.temperature) || "");
-    const savedApiKeys = localStorage.getItem(STORAGE_KEYS.apiKeys);
-
-    if (savedTheme) setDark(savedTheme === "dark");
-    if (savedStyle) setStyleDirective(savedStyle);
-    setSelectedProvider(savedProvider);
-    const nextModel = savedModel || defaultModelFor(savedProvider);
-    setSelectedModel(nextModel);
-    setTemperature(
-      Number.isFinite(savedTemperature)
-        ? clampTemperature(savedTemperature)
-        : defaultTemperatureForModel(savedProvider, nextModel),
-    );
-    if (savedApiKeys) {
-      try {
-        setProviderApiKeys(normalizeProviderKeys(JSON.parse(savedApiKeys)));
-      } catch {
-        setProviderApiKeys(emptyProviderKeys());
-      }
-    }
-
     if (localStorage.getItem(STORAGE_KEYS.guideSeen) !== "true") {
       setHelpOpen(true);
       localStorage.setItem(STORAGE_KEYS.guideSeen, "true");
@@ -427,6 +488,7 @@ function App() {
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.theme, dark ? "dark" : "light");
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
   }, [dark]);
 
   useEffect(() => {
@@ -442,8 +504,8 @@ function App() {
   }, [selectedModel]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.temperature, temperature.toString());
-  }, [temperature]);
+    localStorage.setItem(STORAGE_KEYS.effort, effort);
+  }, [effort]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.apiKeys, JSON.stringify(providerApiKeys));
@@ -452,9 +514,7 @@ function App() {
   useEffect(() => {
     const availableModels: string[] = MODEL_OPTIONS[selectedProvider].map((option) => option.value);
     if (!availableModels.includes(selectedModel)) {
-      const fallbackModel = defaultModelFor(selectedProvider);
-      setSelectedModel(fallbackModel);
-      setTemperature(defaultTemperatureForModel(selectedProvider, fallbackModel));
+      setSelectedModel(defaultModelFor(selectedProvider));
     }
   }, [selectedModel, selectedProvider]);
 
@@ -471,8 +531,8 @@ function App() {
   }, [selectedModel]);
 
   useEffect(() => {
-    temperatureRef.current = clampTemperature(temperature);
-  }, [temperature]);
+    effortRef.current = effort;
+  }, [effort]);
 
   useEffect(() => {
     apiKeyRef.current = providerApiKeys[selectedProvider].trim();
@@ -504,7 +564,7 @@ function App() {
       styleDirective: styleRef.current,
       provider: providerRef.current,
       model: modelRef.current,
-      temperature: temperatureRef.current,
+      effort: effortRef.current,
       apiKey: apiKeyRef.current,
     });
     const requestKey = JSON.stringify({ text: trimmedText, settingsKey });
@@ -535,6 +595,7 @@ function App() {
     inFlightKeyRef.current = requestKey;
 
     setStreaming(true);
+    setStreamPreview("");
     setResult(null);
     setError(null);
     setActiveChangeKey(null);
@@ -556,17 +617,13 @@ function App() {
           style_directive: styleRef.current,
           provider: providerRef.current,
           model: modelRef.current,
-          temperature: temperatureRef.current,
+          effort: effortRef.current,
           api_key: apiKeyRef.current || undefined,
         }),
       });
 
-      if (!response.ok) {
-        throw new Error("Analysis failed. Try again.");
-      }
-
-      if (!response.body) {
-        throw new Error("Analysis failed. Try again.");
+      if (!response.ok || !response.body) {
+        throw new ApiError(`The Lexis server returned an error (${response.status}). Try again.`, "server");
       }
 
       const reader = response.body.getReader();
@@ -589,16 +646,20 @@ function App() {
           try {
             const parsed = JSON.parse(data);
             if (parsed.error) {
-              throw new Error(parsed.error);
+              throw new ApiError(parsed.error, parsed.code);
             }
             if (parsed.text) {
               fullText += parsed.text;
             }
           } catch (parseError) {
-            if (parseError instanceof Error) {
+            if (parseError instanceof ApiError) {
               throw parseError;
             }
           }
+        }
+
+        if (requestId === requestSequenceRef.current) {
+          setStreamPreview(extractPartialRewrite(fullText));
         }
       }
 
@@ -615,10 +676,11 @@ function App() {
       if (caughtError instanceof Error && caughtError.name === "AbortError") return;
       if (requestId !== requestSequenceRef.current) return;
       lastCompletedKeyRef.current = "";
-      setError(caughtError instanceof Error ? caughtError.message : "Analysis failed. Try again.");
+      setError(toLexisError(caughtError, "The rewrite failed. Try again."));
     } finally {
       if (requestId === requestSequenceRef.current) {
         setStreaming(false);
+        setStreamPreview("");
       }
       if (inFlightKeyRef.current === requestKey) {
         inFlightKeyRef.current = null;
@@ -633,11 +695,14 @@ function App() {
     styleRef.current = styleDirective;
     providerRef.current = selectedProvider;
     modelRef.current = selectedModel;
-    temperatureRef.current = clampTemperature(temperature);
+    effortRef.current = effort;
     apiKeyRef.current = providerApiKeys[selectedProvider].trim();
 
+    // Restart the carriage-return bump even if the last one is still playing.
+    setSentPulse(false);
+    requestAnimationFrame(() => setSentPulse(true));
     void analyze(trimmedInput, true);
-  }, [analyze, input, providerApiKeys, selectedModel, selectedProvider, styleDirective, temperature]);
+  }, [analyze, effort, input, providerApiKeys, selectedModel, selectedProvider, styleDirective]);
 
   const snapshotCurrentState = () => {
     if (!result) return null;
@@ -760,6 +825,7 @@ function App() {
     if (!result) return;
     setVarLoading(true);
     setVarOptions([]);
+    setVarError(null);
     setVarChangeKey(change.key);
     if (varAbortRef.current) varAbortRef.current.abort();
     const controller = new AbortController();
@@ -777,11 +843,13 @@ function App() {
           style_directive: styleRef.current,
           provider: providerRef.current,
           model: modelRef.current,
-          temperature: temperatureRef.current,
+          effort: effortRef.current,
           api_key: apiKeyRef.current || undefined,
         }),
       });
-      if (!response.ok || !response.body) throw new Error("Variations request failed");
+      if (!response.ok || !response.body) {
+        throw new ApiError(`The Lexis server returned an error (${response.status}). Try again.`, "server");
+      }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let lineBuffer = "";
@@ -798,7 +866,7 @@ function App() {
           if (data === "[DONE]") continue;
           let parsed: { text?: string; error?: string } | null = null;
           try { parsed = JSON.parse(data); } catch { continue; }
-          if (parsed?.error) throw new Error(parsed.error);
+          if (parsed?.error) throw new ApiError(parsed.error, (parsed as { code?: string }).code);
           if (parsed?.text) fullText += parsed.text;
         }
       }
@@ -808,6 +876,7 @@ function App() {
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
       setVarOptions([]);
+      setVarError(toLexisError(err, "Couldn't draft variations. Try again.").message);
     } finally {
       setVarLoading(false);
     }
@@ -860,7 +929,7 @@ function App() {
   };
 
   const handleHighlightClick = (change: SanitizedChange, event: React.MouseEvent) => {
-    const rect = (event.target as HTMLElement).getBoundingClientRect();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     if (activeChangeKey === change.key) {
       setActiveChangeKey(null);
       setModalPos(null);
@@ -870,18 +939,18 @@ function App() {
     setActiveChangeKey(change.key);
     setModalPos({
       x: rect.left + rect.width / 2,
-      y: rect.bottom + 8,
-      yAbove: rect.top - 8,
+      y: rect.bottom + 10,
+      yAbove: rect.top - 10,
     });
   };
 
   const hasContent = input.trim().length >= MIN_LENGTH;
   const wordCount = input.trim().split(/\s+/).filter(Boolean).length;
-  const allModels = allModelOptions();
+  const proofWordCount = result ? result.rewrite.trim().split(/\s+/).filter(Boolean).length : 0;
+  const canSend = hasContent && !streaming;
   const handleModelSelection = (provider: ProviderId, model: string) => {
     setSelectedProvider(provider);
     setSelectedModel(model);
-    setTemperature(defaultTemperatureForModel(provider, model));
     setSelectorOpen(false);
   };
   const handleProviderApiKeyChange = (provider: ProviderId, value: string) => {
@@ -891,516 +960,153 @@ function App() {
     }));
   };
 
-  const d = dark;
-  const accent = "#d4975c";
-  const theme = {
-    bg: d ? "#0e0c0a" : "#f5f2ec",
-    bgR: d ? "#110f0c" : "#f0ece4",
-    border: d ? "#2e2820" : "#d8d0c4",
-    text: d ? "#f0e8da" : "#2a2218",
-    textMuted: d ? "#a8957e" : "#6a5a4a",
-    textFaint: d ? "#7a6a56" : "#a09080",
-    label: d ? "#8a7862" : "#a09080",
-    unchanged: d ? "#c8b89e" : "#4a3a2a",
-    accentText: d ? "#d4a870" : "#7a5a2a",
-    hoverBg: d ? "rgba(255,255,255,0.04)" : "#e8e0d4",
-    toggleBg: d ? "#1a1610" : "#ede8e0",
-    toggleBorder: d ? "#3a3028" : "#d0c8bc",
-    modalBg: d ? "#131008" : "#faf7f1",
-    modalBorder: d ? "#3a3028" : "#ddd5c4",
-    pillBg: d ? "#1c1914" : "#f2ede3",
-    pillBorder: d ? "#362e24" : "#e2d8cc",
-    shadow: d ? "0 8px 32px rgba(0,0,0,0.5)" : "0 4px 20px rgba(0,0,0,0.08)",
-  };
-
-  const topBorder = "1px solid " + theme.border;
-  const panelBorder = "1px solid " + theme.border;
-  const toggleBtnBorder = "1px solid " + theme.toggleBorder;
-  const copyBtnBorder = "1px solid " + theme.border;
-  const modalOuterBorder = "1px solid " + theme.modalBorder;
-  const accentBorderBottom = "1.5px solid " + accent;
-  const mutedBorderBottom = "1.5px solid " + theme.textMuted;
-  const placeholderColor = d ? "#6a5a46" : "#c8bfb4";
-  const scrollThumbColor = d ? "#4a3e30" : "#d0c8bc";
-  const sliderTrackColor = d ? "#3a3228" : "#d8d0c4";
-  const sliderThumbOutline = d ? "#4a3e30" : "#d3c9bb";
-
-  const cssText = [
-    "@keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }",
-    "@keyframes fadeIn { from{opacity:0} to{opacity:1} }",
-    "@keyframes slideUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }",
-    "textarea::placeholder, input::placeholder { font-style: italic; color: " + placeholderColor + "; }",
-    "select { appearance: none; }",
-    ".lexis-temp-slider { appearance: none; -webkit-appearance: none; width: 100%; height: 34px; background: transparent; margin: 0; cursor: pointer; }",
-    ".lexis-temp-slider:focus { outline: none; }",
-    ".lexis-temp-slider::-webkit-slider-runnable-track { height: 2px; background: " + sliderTrackColor + "; border-radius: 999px; }",
-    ".lexis-temp-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; margin-top: -6px; background: " + accent + "; border: 1px solid " + sliderThumbOutline + "; box-shadow: 0 0 0 2px " + theme.bgR + "; transition: transform 0.14s ease, box-shadow 0.14s ease; }",
-    ".lexis-temp-slider:hover::-webkit-slider-thumb { transform: scale(1.05); }",
-    ".lexis-temp-slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px " + theme.bgR + ", 0 0 0 4px " + accent + "55; }",
-    ".lexis-temp-slider::-moz-range-track { height: 2px; background: " + sliderTrackColor + "; border: none; border-radius: 999px; }",
-    ".lexis-temp-slider::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: " + accent + "; border: 1px solid " + sliderThumbOutline + "; box-shadow: 0 0 0 2px " + theme.bgR + "; transition: transform 0.14s ease, box-shadow 0.14s ease; }",
-    ".lexis-temp-slider:hover::-moz-range-thumb { transform: scale(1.05); }",
-    ".lexis-temp-slider:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px " + theme.bgR + ", 0 0 0 4px " + accent + "55; }",
-    "* { box-sizing: border-box; }",
-    "::-webkit-scrollbar { width: 3px; }",
-    "::-webkit-scrollbar-thumb { background: " + scrollThumbColor + "; }",
-    "@media (max-width: 960px) { .lexis-panels { grid-template-columns: 1fr !important; min-height: auto !important; } .lexis-left-panel { border-right: none !important; border-bottom: " + panelBorder + " !important; } .lexis-legend { position: static !important; margin-top: 20px !important; } }",
-  ].join("\n");
+  const activeIsToggled = activeChange ? toggledChanges.has(activeChange.key) : false;
+  const activeCanToggle =
+    !!activeChange && activeChange.resolvedStart !== null && activeChange.resolvedEnd !== null;
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: theme.bg,
-        fontFamily: "Palatino, 'Palatino Linotype', serif",
-        display: "flex",
-        flexDirection: "column",
-        transition: "background 0.25s",
-      }}
-    >
-      <div
-        style={{
-          padding: "20px 40px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 20,
-          borderBottom: topBorder,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-          <span
-            style={{
-              fontSize: 11,
-              letterSpacing: "0.35em",
-              textTransform: "uppercase",
-              color: theme.textMuted,
-            }}
-          >
-            Lexis
-          </span>
-          <span
-            style={{
-              width: 28,
-              height: 1,
-              background: theme.border,
-              display: "inline-block",
-              verticalAlign: "middle",
-            }}
-          />
-          <span
-            style={{
-              fontSize: 11,
-              color: theme.textFaint,
-              letterSpacing: "0.12em",
-            }}
-          >
-            editorial companion
-          </span>
-          <div ref={selectorRef} style={{ position: "relative" }}>
+    <div className="lx-app">
+      <header className="lx-masthead">
+        <div className="lx-masthead-top">
+          <span className="lx-dateline">{TODAY}</span>
+          <h1 className="lx-wordmark">Lexis</h1>
+          <span className="lx-dateline lx-dateline-right">An editorial companion</span>
+        </div>
+
+        <nav className="lx-toolbar" aria-label="Settings">
+          <div ref={selectorRef} className="lx-popover-anchor">
             <button
+              className="lx-chip"
+              aria-expanded={selectorOpen}
               onClick={() => setSelectorOpen(!selectorOpen)}
-              style={{
-                background: "none",
-                border: "none",
-                color: theme.textMuted,
-                fontSize: 10,
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-                cursor: "pointer",
-                padding: 0,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                fontFamily: "inherit",
-              }}
-              onMouseEnter={(event) => {
-                event.currentTarget.style.color = theme.text;
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.color = theme.textMuted;
-              }}
             >
-              <span>{selectedProvider}</span>
-              <span style={{ color: theme.border }}>/</span>
-              <span>{selectedModel}</span>
+              <span className="lx-chip-label">Editor</span>
+              <span className="lx-chip-value">{modelLabel(selectedProvider, selectedModel)}</span>
+              <span className="lx-caret" aria-hidden>▾</span>
             </button>
 
             {selectorOpen ? (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "calc(100% + 14px)",
-                  left: 0,
-                  width: 320,
-                  maxWidth: "calc(100vw - 64px)",
-                  background: theme.modalBg,
-                  border: modalOuterBorder,
-                  boxShadow: d ? "0 24px 60px rgba(0,0,0,0.45)" : "0 16px 48px rgba(0,0,0,0.12)",
-                  padding: "16px 16px 14px",
-                  zIndex: 40,
-                  animation: "slideUp 0.18s ease",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 9,
-                    letterSpacing: "0.24em",
-                    textTransform: "uppercase",
-                    color: theme.label,
-                    marginBottom: 12,
-                  }}
-                >
-                  Choose model
-                </div>
-                <div style={{ display: "grid", gap: 8 }}>
-                  {allModels.map((option) => {
-                    const isSelected =
-                      option.provider === selectedProvider && option.value === selectedModel;
-                    return (
-                      <button
-                        key={`${option.provider}-${option.value}`}
-                        onClick={() => handleModelSelection(option.provider, option.value)}
-                        style={{
-                          background: isSelected ? theme.hoverBg : "transparent",
-                          border: "1px solid " + (isSelected ? accent : theme.modalBorder),
-                          padding: "12px 14px",
-                          textAlign: "left",
-                          cursor: "pointer",
-                          fontFamily: "inherit",
-                          color: theme.text,
-                          transition: "border-color 0.15s, background 0.15s, color 0.15s",
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "baseline",
-                            gap: 12,
-                          }}
+              <div className="lx-popover lx-popover-left lx-roster" role="listbox" aria-label="Choose model">
+                {(Object.keys(MODEL_OPTIONS) as ProviderId[]).map((provider) => (
+                  <div key={provider} className="lx-roster-group">
+                    <div className="lx-eyebrow">{PROVIDER_LABELS[provider]}</div>
+                    {MODEL_OPTIONS[provider].map((option) => {
+                      const isSelected = provider === selectedProvider && option.value === selectedModel;
+                      return (
+                        <button
+                          key={option.value}
+                          role="option"
+                          aria-selected={isSelected}
+                          className={"lx-roster-item" + (isSelected ? " is-selected" : "")}
+                          onClick={() => handleModelSelection(provider, option.value)}
                         >
-                          <span
-                            style={{
-                              fontSize: 18,
-                              fontStyle: "italic",
-                              color: isSelected ? theme.accentText : theme.text,
-                            }}
-                          >
-                            {option.label}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: 9,
-                              letterSpacing: "0.18em",
-                              textTransform: "uppercase",
-                              color: isSelected ? theme.accentText : theme.textMuted,
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {option.provider}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                          <span className="lx-roster-name">{option.label}</span>
+                          <span className="lx-roster-note">{option.note}</span>
+                          <span className="lx-roster-id">{option.value}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             ) : null}
           </div>
-        </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+          <div className="lx-effort" role="radiogroup" aria-label="Effort">
+            <span className="lx-chip-label">Effort</span>
+            {EFFORT_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                role="radio"
+                aria-checked={effort === option.value}
+                title={option.hint}
+                className={"lx-effort-key" + (effort === option.value ? " is-on" : "")}
+                onClick={() => setEffort(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
+          <span className="lx-toolbar-spacer" />
+
+          <span className={"lx-status" + (streaming ? " is-busy" : "")} aria-live="polite">
+            {streaming ? "Setting type" : result ? `${sanitizedChanges.length} mark${sanitizedChanges.length !== 1 ? "s" : ""}` : ""}
+          </span>
+
           <button
+            className="lx-link"
             onClick={() => {
               setHelpOpen(true);
               setSelectorOpen(false);
               setKeysOpen(false);
               localStorage.setItem(STORAGE_KEYS.guideSeen, "true");
             }}
-            style={{
-              background: "none",
-              border: "none",
-              color: theme.textMuted,
-              fontSize: 10,
-              letterSpacing: "0.18em",
-              textTransform: "uppercase",
-              cursor: "pointer",
-              padding: 0,
-              fontFamily: "inherit",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-            onMouseEnter={(event) => {
-              event.currentTarget.style.color = theme.text;
-            }}
-            onMouseLeave={(event) => {
-              event.currentTarget.style.color = theme.textMuted;
-            }}
           >
-            <span
-              style={{
-                width: 16,
-                height: 16,
-                borderRadius: "50%",
-                border: "1px solid " + theme.border,
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 9,
-                lineHeight: 1,
-                color: theme.accentText,
-              }}
-            >
-              ?
-            </span>
-            <span>Guide</span>
+            Guide
           </button>
 
-          <div ref={keysRef} style={{ position: "relative" }}>
-            <button
-              onClick={() => setKeysOpen(!keysOpen)}
-              style={{
-                background: "none",
-                border: "none",
-                color: theme.textMuted,
-                fontSize: 10,
-                letterSpacing: "0.18em",
-                textTransform: "uppercase",
-                cursor: "pointer",
-                padding: 0,
-                fontFamily: "inherit",
-              }}
-              onMouseEnter={(event) => {
-                event.currentTarget.style.color = theme.text;
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.color = theme.textMuted;
-              }}
-            >
+          <div ref={keysRef} className="lx-popover-anchor">
+            <button className="lx-link" aria-expanded={keysOpen} onClick={() => setKeysOpen(!keysOpen)}>
               Keys
             </button>
 
             {keysOpen ? (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "calc(100% + 14px)",
-                  right: 0,
-                  width: 360,
-                  maxWidth: "calc(100vw - 64px)",
-                  background: theme.modalBg,
-                  border: modalOuterBorder,
-                  boxShadow: d ? "0 24px 60px rgba(0,0,0,0.45)" : "0 16px 48px rgba(0,0,0,0.12)",
-                  padding: "16px 16px 14px",
-                  zIndex: 40,
-                  animation: "slideUp 0.18s ease",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 9,
-                    letterSpacing: "0.24em",
-                    textTransform: "uppercase",
-                    color: theme.label,
-                    marginBottom: 12,
-                  }}
-                >
-                  Provider keys
-                </div>
-                <div style={{ display: "grid", gap: 12 }}>
-                  {(Object.keys(MODEL_OPTIONS) as ProviderId[]).map((provider) => (
-                    <label key={provider} style={{ display: "grid", gap: 6 }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "baseline",
-                          justifyContent: "space-between",
-                          gap: 12,
-                        }}
+              <div className="lx-popover lx-popover-right lx-keys">
+                <div className="lx-eyebrow">Provider keys</div>
+                {(Object.keys(MODEL_OPTIONS) as ProviderId[]).map((provider) => (
+                  <label key={provider} className="lx-field">
+                    <span className="lx-field-head">
+                      <span className={provider === selectedProvider ? "is-current" : undefined}>
+                        {PROVIDER_LABELS[provider]}
+                      </span>
+                      <button
+                        type="button"
+                        className="lx-link lx-link-small"
+                        onClick={() => handleProviderApiKeyChange(provider, "")}
+                        disabled={!providerApiKeys[provider]}
                       >
-                        <span
-                          style={{
-                            fontSize: 10,
-                            letterSpacing: "0.18em",
-                            textTransform: "uppercase",
-                            color: provider === selectedProvider ? theme.accentText : theme.label,
-                          }}
-                        >
-                          {provider}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleProviderApiKeyChange(provider, "")}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            color: theme.textMuted,
-                            fontSize: 9,
-                            letterSpacing: "0.15em",
-                            textTransform: "uppercase",
-                            cursor: "pointer",
-                            fontFamily: "inherit",
-                            padding: 0,
-                            opacity: providerApiKeys[provider] ? 1 : 0.5,
-                          }}
-                          disabled={!providerApiKeys[provider]}
-                        >
-                          Clear
-                        </button>
-                      </div>
-                      <input
-                        type="password"
-                        value={providerApiKeys[provider]}
-                        onChange={(event) => handleProviderApiKeyChange(provider, event.target.value)}
-                        placeholder={`Use saved ${provider} server key`}
-                        style={{
-                          width: "100%",
-                          background: theme.toggleBg,
-                          border: "1px solid " + (provider === selectedProvider ? accent : theme.toggleBorder),
-                          outline: "none",
-                          fontFamily: "inherit",
-                          fontSize: 13,
-                          color: theme.text,
-                          caretColor: accent,
-                          padding: "10px 12px",
-                        }}
-                        onFocus={(event) => {
-                          event.currentTarget.style.borderColor = accent;
-                        }}
-                        onBlur={(event) => {
-                          event.currentTarget.style.borderColor =
-                            provider === selectedProvider ? accent : theme.toggleBorder;
-                        }}
-                      />
-                    </label>
-                  ))}
-                </div>
+                        Clear
+                      </button>
+                    </span>
+                    <input
+                      type="password"
+                      autoFocus={provider === selectedProvider}
+                      className="lx-input"
+                      value={providerApiKeys[provider]}
+                      onChange={(event) => handleProviderApiKeyChange(provider, event.target.value)}
+                      placeholder={`Use the server's ${PROVIDER_LABELS[provider]} key`}
+                    />
+                  </label>
+                ))}
               </div>
             ) : null}
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              opacity: hasContent || streaming ? 1 : 0,
-              transition: "opacity 0.3s",
-            }}
-          >
-            {streaming ? (
-              <>
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    style={{
-                      width: 5,
-                      height: 5,
-                      borderRadius: "50%",
-                      background: accent,
-                      animation: "pulse 1.2s ease-in-out infinite",
-                      animationDelay: i * 180 + "ms",
-                    }}
-                  />
-                ))}
-                <span
-                  style={{
-                    fontSize: 10,
-                    letterSpacing: "0.2em",
-                    color: theme.textMuted,
-                    textTransform: "uppercase",
-                    marginLeft: 4,
-                  }}
-                >
-                  rewriting
-                </span>
-              </>
-            ) : result ? (
-              <>
-                <div
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    background: "#7aaa7a",
-                    boxShadow: "0 0 8px #7aaa7a80",
-                  }}
-                />
-                <span
-                  style={{
-                    fontSize: 10,
-                    letterSpacing: "0.2em",
-                    color: theme.textMuted,
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {sanitizedChanges.length} change{sanitizedChanges.length !== 1 ? "s" : ""}
-                </span>
-              </>
-            ) : null}
-          </div>
-
-          <button
-            onClick={() => setDark(!dark)}
-            style={{
-              background: theme.toggleBg,
-              border: toggleBtnBorder,
-              color: theme.textMuted,
-              padding: "5px 14px",
-              fontSize: 10,
-              letterSpacing: "0.2em",
-              textTransform: "uppercase",
-              cursor: "pointer",
-              fontFamily: "inherit",
-              transition: "all 0.2s",
-            }}
-            onMouseEnter={(event) => {
-              event.currentTarget.style.color = theme.text;
-            }}
-            onMouseLeave={(event) => {
-              event.currentTarget.style.color = theme.textMuted;
-            }}
-          >
-            {dark ? "Light" : "Dark"}
+          <button className="lx-link" onClick={() => setDark(!dark)}>
+            {dark ? "Paper" : "Carbon"}
           </button>
-        </div>
-      </div>
+        </nav>
+      </header>
 
-      <div
-        className="lexis-panels"
-        style={{
-          flex: 1,
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          minHeight: "calc(100vh - 65px)",
-        }}
-      >
-        <div
-          className="lexis-left-panel"
-          style={{
-            padding: 48,
-            borderRight: panelBorder,
-            display: "flex",
-            flexDirection: "column",
-            position: "relative",
+      <main className="lx-desk">
+        <section
+          className={"lx-sheet lx-manuscript" + (sentPulse ? " is-sent" : "")}
+          aria-label="Manuscript"
+          onAnimationEnd={(event) => {
+            if (event.target === event.currentTarget) setSentPulse(false);
           }}
         >
-          <div
-            style={{
-              fontSize: 10,
-              letterSpacing: "0.3em",
-              textTransform: "uppercase",
-              color: theme.label,
-              marginBottom: 24,
-            }}
-          >
-            Your text
+          <div className="lx-sheet-head">
+            <span className="lx-eyebrow">Manuscript</span>
+            <span className="lx-meta">{input.length > 0 ? `${wordCount} words` : "Draft"}</span>
           </div>
+
           <textarea
             autoFocus
+            className="lx-typewriter"
             value={input}
+            spellCheck
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
               if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -1408,868 +1114,239 @@ function App() {
                 sendNow();
               }
             }}
-            placeholder={"Begin writing…"}
-            style={{
-              flex: 1,
-              background: "transparent",
-              border: "none",
-              outline: "none",
-              resize: "none",
-              fontFamily: "Palatino, serif",
-              fontSize: 19,
-              lineHeight: 1.85,
-              color: theme.text,
-              caretColor: accent,
-              minHeight: 300,
-            }}
+            placeholder={"Begin typing…"}
           />
 
-          <div
-            style={{
-              marginTop: 10,
-              fontSize: 10,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              color: theme.textFaint,
-            }}
-          >
-            Press Ctrl/Cmd + Enter to send
-          </div>
-
-          <div
-            style={{
-              marginTop: 14,
-              display: "flex",
-              justifyContent: "flex-start",
-            }}
-          >
+          <div className="lx-brief">
             <button
-              onClick={sendNow}
-              disabled={!hasContent || streaming}
-              style={{
-                background: hasContent && !streaming ? accent + "14" : "transparent",
-                border: "1px solid " + (hasContent && !streaming ? accent : theme.border),
-                color: hasContent && !streaming ? accent : theme.textFaint,
-                padding: "8px 16px",
-                fontSize: 10,
-                letterSpacing: "0.2em",
-                textTransform: "uppercase",
-                cursor: hasContent && !streaming ? "pointer" : "not-allowed",
-                fontFamily: "inherit",
-                transition: "all 0.15s",
-                opacity: hasContent || streaming ? 1 : 0.6,
-              }}
-              onMouseEnter={(event) => {
-                if (!hasContent || streaming) return;
-                event.currentTarget.style.background = accent + "22";
-                event.currentTarget.style.color = theme.text;
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.background = hasContent && !streaming ? accent + "14" : "transparent";
-                event.currentTarget.style.color = hasContent && !streaming ? accent : theme.textFaint;
-              }}
-            >
-              Send
-            </button>
-          </div>
-
-          <div
-            style={{
-              borderTop: panelBorder,
-              marginTop: 16,
-              paddingTop: 12,
-              display: "grid",
-              gap: 12,
-            }}
-          >
-            <button
+              className={"lx-brief-toggle" + (styleDirective ? " has-brief" : "")}
+              aria-expanded={styleOpen}
               onClick={() => setStyleOpen(!styleOpen)}
-              style={{
-                background: "none",
-                border: "none",
-                color: styleDirective ? accent : theme.textMuted,
-                fontSize: 10,
-                letterSpacing: "0.2em",
-                textTransform: "uppercase",
-                cursor: "pointer",
-                fontFamily: "inherit",
-                padding: 0,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-              onMouseEnter={(event) => {
-                event.currentTarget.style.color = theme.text;
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.color = styleDirective ? accent : theme.textMuted;
-              }}
             >
-              <span
-                style={{
-                  display: "inline-block",
-                  transform: styleOpen ? "rotate(90deg)" : "rotate(0deg)",
-                  transition: "transform 0.15s",
-                  fontSize: 8,
-                }}
-              >
-                &#9654;
-              </span>
-              Style directive{styleDirective ? " •" : ""}
+              <span className={"lx-disclosure" + (styleOpen ? " is-open" : "")} aria-hidden>▸</span>
+              Editor's brief
+              {styleDirective && !styleOpen ? <span className="lx-brief-peek">“{styleDirective}”</span> : null}
             </button>
 
             {styleOpen ? (
-              <div style={{ display: "grid", gap: 12, animation: "fadeIn 0.2s" }}>
+              <div className="lx-brief-body">
                 <textarea
+                  className="lx-input lx-brief-input"
                   value={styleDirective}
                   onChange={(event) => setStyleDirective(event.target.value)}
-                  placeholder={"e.g. Write in the style of Cormac McCarthy — sparse punctuation, biblical cadence, visceral imagery…"}
-                  style={{
-                    width: "100%",
-                    background: theme.toggleBg,
-                    border: toggleBtnBorder,
-                    outline: "none",
-                    resize: "vertical",
-                    fontFamily: "Palatino, serif",
-                    fontSize: 13,
-                    lineHeight: 1.7,
-                    color: theme.text,
-                    caretColor: accent,
-                    padding: "10px 12px",
-                    minHeight: 60,
-                    maxHeight: 140,
-                    transition: "border-color 0.15s",
-                  }}
-                  onFocus={(event) => {
-                    event.currentTarget.style.borderColor = accent;
-                  }}
-                  onBlur={(event) => {
-                    event.currentTarget.style.borderColor = theme.toggleBorder;
-                  }}
+                  placeholder={"e.g. Write like Cormac McCarthy: sparse punctuation, biblical cadence, visceral imagery…"}
                 />
-
-                <label style={{ display: "grid", gap: 6 }}>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      letterSpacing: "0.18em",
-                      textTransform: "uppercase",
-                      color: theme.label,
-                    }}
-                  >
-                    Temperature
-                  </span>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 88px", gap: 10 }}>
-                    <input
-                      className="lexis-temp-slider"
-                      type="range"
-                      min={0}
-                      max={2}
-                      step={0.05}
-                      value={temperature}
-                      onChange={(event) => {
-                        setTemperature(clampTemperature(Number.parseFloat(event.target.value)));
-                      }}
-                      style={{ accentColor: accent }}
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      max={2}
-                      step={0.05}
-                      value={temperature}
-                      onChange={(event) => {
-                        setTemperature(clampTemperature(Number.parseFloat(event.target.value)));
-                      }}
-                      style={{
-                        background: theme.toggleBg,
-                        border: toggleBtnBorder,
-                        color: theme.text,
-                        padding: "10px 12px",
-                        fontFamily: "inherit",
-                        fontSize: 13,
-                        outline: "none",
-                      }}
-                    />
-                  </div>
-                </label>
-
-                <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                  {styleDirective ? (
-                    <button
-                      onClick={() => setStyleDirective("")}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: theme.textMuted,
-                        fontSize: 9,
-                        letterSpacing: "0.15em",
-                        textTransform: "uppercase",
-                        cursor: "pointer",
-                        fontFamily: "inherit",
-                        padding: "0",
-                      }}
-                      onMouseEnter={(event) => {
-                        event.currentTarget.style.color = theme.text;
-                      }}
-                      onMouseLeave={(event) => {
-                        event.currentTarget.style.color = theme.textMuted;
-                      }}
-                    >
-                      Clear style
-                    </button>
-                  ) : null}
-
-                </div>
+                {styleDirective ? (
+                  <button className="lx-link lx-link-small" onClick={() => setStyleDirective("")}>
+                    Clear brief
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </div>
 
-          <div
-            style={{
-              fontSize: 10,
-              color: theme.textFaint,
-              letterSpacing: "0.15em",
-              marginTop: 12,
-            }}
-          >
-            {input.length > 0 ? wordCount + " words" : ""}
+          <div className="lx-sheet-foot">
+            <span className="lx-meta">Ctrl/Cmd + Enter</span>
+            <button className="lx-key" onClick={sendNow} disabled={!canSend}>
+              {streaming ? "With the editor…" : "Send to editor"}
+              <span className="lx-key-glyph" aria-hidden>⏎</span>
+            </button>
           </div>
-        </div>
+        </section>
 
-        <div
-          style={{
-            padding: 48,
-            display: "flex",
-            flexDirection: "column",
-            position: "relative",
-            background: theme.bgR,
-            transition: "background 0.25s",
-            overflowY: "auto",
-          }}
-        >
-          <div
-            style={{
-              fontSize: 10,
-              letterSpacing: "0.3em",
-              textTransform: "uppercase",
-              color: theme.label,
-              marginBottom: 24,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: 16,
-              flexWrap: "wrap",
-            }}
-          >
-            <span>Alternate</span>
-            <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-              {result && !streaming && !editMode ? (
-                <span
-                  style={{
-                    fontSize: 9,
-                    color: theme.textFaint,
-                    letterSpacing: "0.1em",
-                    fontStyle: "italic",
-                  }}
-                >
-                  click highlighted words
-                </span>
-              ) : null}
-
+        <section className="lx-sheet lx-proof" aria-label="Proof" aria-busy={streaming}>
+          <div className="lx-sheet-head">
+            <span className="lx-eyebrow">Proof</span>
+            <div className="lx-actions">
               {history.length > 0 && !streaming ? (
-                <button
-                  onClick={undo}
-                  style={{
-                    background: "none",
-                    border: copyBtnBorder,
-                    color: theme.textMuted,
-                    padding: "4px 14px",
-                    fontSize: 9,
-                    letterSpacing: "0.2em",
-                    textTransform: "uppercase",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    transition: "all 0.15s",
-                  }}
-                  onMouseEnter={(event) => {
-                    event.currentTarget.style.borderColor = theme.textMuted;
-                    event.currentTarget.style.color = theme.text;
-                  }}
-                  onMouseLeave={(event) => {
-                    event.currentTarget.style.borderColor = theme.border;
-                    event.currentTarget.style.color = theme.textMuted;
-                  }}
-                >
-                  Undo
-                </button>
+                <button className="lx-link" onClick={undo}>Undo</button>
               ) : null}
-
               {redoHistory.length > 0 && !streaming ? (
-                <button
-                  onClick={redo}
-                  style={{
-                    background: "none",
-                    border: copyBtnBorder,
-                    color: theme.textMuted,
-                    padding: "4px 14px",
-                    fontSize: 9,
-                    letterSpacing: "0.2em",
-                    textTransform: "uppercase",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    transition: "all 0.15s",
-                  }}
-                  onMouseEnter={(event) => {
-                    event.currentTarget.style.borderColor = theme.textMuted;
-                    event.currentTarget.style.color = theme.text;
-                  }}
-                  onMouseLeave={(event) => {
-                    event.currentTarget.style.borderColor = theme.border;
-                    event.currentTarget.style.color = theme.textMuted;
-                  }}
-                >
-                  Redo
-                </button>
+                <button className="lx-link" onClick={redo}>Redo</button>
               ) : null}
-
               {result && !streaming && !editMode ? (
-                <button
-                  onClick={sendNow}
-                  style={{
-                    background: "none",
-                    border: copyBtnBorder,
-                    color: theme.textMuted,
-                    padding: "4px 14px",
-                    fontSize: 9,
-                    letterSpacing: "0.2em",
-                    textTransform: "uppercase",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    transition: "all 0.15s",
-                  }}
-                  onMouseEnter={(event) => {
-                    event.currentTarget.style.borderColor = theme.textMuted;
-                    event.currentTarget.style.color = theme.text;
-                  }}
-                  onMouseLeave={(event) => {
-                    event.currentTarget.style.borderColor = theme.border;
-                    event.currentTarget.style.color = theme.textMuted;
-                  }}
-                >
-                  Regenerate
-                </button>
+                <>
+                  <button className="lx-link" onClick={sendNow}>Reset</button>
+                  <button className="lx-link" onClick={enterEditMode}>Edit</button>
+                </>
               ) : null}
-
-              {result && !streaming && !editMode ? (
-                <button
-                  onClick={enterEditMode}
-                  style={{
-                    background: "none",
-                    border: copyBtnBorder,
-                    color: theme.textMuted,
-                    padding: "4px 14px",
-                    fontSize: 9,
-                    letterSpacing: "0.2em",
-                    textTransform: "uppercase",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    transition: "all 0.15s",
-                  }}
-                  onMouseEnter={(event) => {
-                    event.currentTarget.style.borderColor = theme.textMuted;
-                    event.currentTarget.style.color = theme.text;
-                  }}
-                  onMouseLeave={(event) => {
-                    event.currentTarget.style.borderColor = theme.border;
-                    event.currentTarget.style.color = theme.textMuted;
-                  }}
-                >
-                  Edit
-                </button>
-              ) : null}
-
               {editMode ? (
-                <button
-                  onClick={saveEdit}
-                  style={{
-                    background: "none",
-                    border: "1px solid " + accent,
-                    color: accent,
-                    padding: "4px 14px",
-                    fontSize: 9,
-                    letterSpacing: "0.2em",
-                    textTransform: "uppercase",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    transition: "all 0.15s",
-                  }}
-                  onMouseEnter={(event) => {
-                    event.currentTarget.style.background = accent + "22";
-                  }}
-                  onMouseLeave={(event) => {
-                    event.currentTarget.style.background = "none";
-                  }}
-                >
-                  Save
-                </button>
+                <>
+                  <button className="lx-link" onClick={() => setEditMode(false)}>Cancel</button>
+                  <button className="lx-link is-pencil" onClick={saveEdit}>Save</button>
+                </>
               ) : null}
-
               {result && !editMode ? (
-                <button
-                  onClick={copyRewrite}
-                  style={{
-                    background: "none",
-                    border: copyBtnBorder,
-                    color: copied ? "#7aaa7a" : theme.textMuted,
-                    padding: "4px 14px",
-                    fontSize: 9,
-                    letterSpacing: "0.2em",
-                    textTransform: "uppercase",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    transition: "all 0.15s",
-                  }}
-                  onMouseEnter={(event) => {
-                    event.currentTarget.style.borderColor = theme.textMuted;
-                    event.currentTarget.style.color = theme.text;
-                  }}
-                  onMouseLeave={(event) => {
-                    event.currentTarget.style.borderColor = theme.border;
-                    event.currentTarget.style.color = copied ? "#7aaa7a" : theme.textMuted;
-                  }}
-                >
+                <button className={"lx-link" + (copied ? " is-done" : "")} onClick={copyRewrite}>
                   {copied ? "Copied" : "Copy"}
                 </button>
               ) : null}
             </div>
           </div>
 
-          {!hasContent && !streaming ? (
-            <div
-              style={{
-                fontSize: 19,
-                lineHeight: 1.85,
-                color: theme.textFaint,
-                fontStyle: "italic",
-              }}
-            >
-              A rewritten version will appear here...
+          {result?.analysis && !editMode ? (
+            <div className="lx-colophon">
+              {result.analysis.register ? <span>Register · {result.analysis.register}</span> : null}
+              {result.analysis.tone ? <span>Tone · {result.analysis.tone}</span> : null}
+              <span>{proofWordCount} words</span>
             </div>
           ) : null}
 
-          {hasContent && streaming && !result ? (
-            <div
-              style={{
-                fontSize: 19,
-                lineHeight: 1.85,
-                color: theme.textFaint,
-                fontStyle: "italic",
-              }}
-            >
-              <span style={{ animation: "pulse 1.2s ease-in-out infinite" }}>Rewriting...</span>
-            </div>
+          {!result && !streaming && !error ? (
+            <p className="lx-proof-text lx-placeholder">
+              {hasContent
+                ? "Send the manuscript when you're ready. The proof will be set here, with every edit marked in red pencil."
+                : "The proof will be set here."}
+            </p>
+          ) : null}
+
+          {streaming && !result ? (
+            <p className="lx-proof-text lx-setting">
+              {streamPreview}
+              <span className="lx-cursor" aria-hidden />
+            </p>
           ) : null}
 
           {result && editMode ? (
             <textarea
               autoFocus
+              className="lx-proof-text lx-proof-edit"
               value={editedText}
               onChange={(e) => setEditedText(e.target.value)}
-              style={{
-                flex: 1,
-                width: "100%",
-                background: "transparent",
-                border: "none",
-                outline: "none",
-                resize: "none",
-                fontFamily: "Palatino, serif",
-                fontSize: 19,
-                lineHeight: 1.85,
-                color: theme.text,
-                caretColor: accent,
-                minHeight: 300,
-                marginBottom: 32,
-              }}
             />
           ) : result ? (
-            <div
-              style={{
-                fontSize: 19,
-                lineHeight: 1.85,
-                color: theme.text,
-                fontFamily: "Palatino, serif",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                marginBottom: 32,
-              }}
-            >
+            <p className="lx-proof-text">
               {segments.map((segment, index) => {
                 if (segment.type === "plain") {
-                  return (
-                    <span key={`plain-${index}`} style={{ color: theme.unchanged }}>
-                      {segment.text}
-                    </span>
-                  );
+                  return <span key={`plain-${index}`}>{segment.text}</span>;
                 }
 
-                const isActive = activeChangeKey === segment.change?.key;
-                const isToggled = toggledChanges.has(segment.change!.key);
+                const change = segment.change!;
+                const isActive = activeChangeKey === change.key;
+                const isToggled = toggledChanges.has(change.key);
                 return (
                   <span
-                    key={segment.change!.key}
-                    onClick={(event) => handleHighlightClick(segment.change!, event)}
-                    style={{
-                      color: isToggled ? theme.unchanged : theme.accentText,
-                      borderBottom: isToggled ? mutedBorderBottom : accentBorderBottom,
-                      paddingBottom: 1,
-                      cursor: "pointer",
-                      padding: "0 1px",
-                      transition: "background 0.1s, color 0.15s",
-                      background: isActive ? theme.hoverBg : "transparent",
-                      textDecoration: "none",
-                      fontStyle: "italic",
-                    }}
-                    onMouseEnter={(event) => {
-                      event.currentTarget.style.background = theme.hoverBg;
-                    }}
-                    onMouseLeave={(event) => {
-                      event.currentTarget.style.background = isActive ? theme.hoverBg : "transparent";
+                    key={change.key}
+                    role="button"
+                    tabIndex={0}
+                    data-n={changeNumbers.get(change.key)}
+                    className={"lx-mark" + (isToggled ? " is-restored" : "") + (isActive ? " is-active" : "")}
+                    onClick={(event) => handleHighlightClick(change, event)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handleHighlightClick(change, event as unknown as React.MouseEvent);
+                      }
                     }}
                   >
-                    {isToggled ? segment.change!.original : segment.text}
+                    {isToggled ? change.original : segment.text}
                   </span>
                 );
               })}
-            </div>
-          ) : null}
-
-          {sanitizedChanges.length > 0 ? (
-            <div style={{ marginTop: "auto", paddingTop: 24, borderTop: topBorder }}>
-              <div
-                style={{
-                  fontSize: 10,
-                  letterSpacing: "0.3em",
-                  textTransform: "uppercase",
-                  color: theme.label,
-                  marginBottom: 14,
-                }}
-              >
-                Changelog
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-                {sanitizedChanges.map((change) => {
-                  const isToggled = toggledChanges.has(change.key);
-                  const pillBorderVal =
-                    "1px solid " + (isToggled ? theme.textMuted : theme.pillBorder);
-                  const canToggle = change.resolvedStart !== null && change.resolvedEnd !== null;
-
-                  return (
-                    <div
-                      key={change.key}
-                      onClick={() => {
-                        if (canToggle) toggleChange(change);
-                      }}
-                      style={{
-                        background: isToggled ? (d ? "#1a1a14" : "#e8e4dc") : theme.pillBg,
-                        border: pillBorderVal,
-                        padding: "8px 14px",
-                        cursor: canToggle ? "pointer" : "default",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        transition: "border-color 0.12s, background 0.12s",
-                        fontSize: 14,
-                        fontFamily: "Palatino, serif",
-                        opacity: canToggle ? 1 : 0.6,
-                      }}
-                      onMouseEnter={(event) => {
-                        if (canToggle) event.currentTarget.style.borderColor = accent;
-                      }}
-                      onMouseLeave={(event) => {
-                        event.currentTarget.style.borderColor = isToggled
-                          ? theme.textMuted
-                          : theme.pillBorder;
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontStyle: "italic",
-                          color: isToggled ? theme.accentText : theme.textMuted,
-                        }}
-                      >
-                        {change.original}
-                      </span>
-                      <span style={{ color: theme.textFaint, fontSize: 12 }}>
-                        {canToggle ? (isToggled ? "←" : "→") : "•"}
-                      </span>
-                      <span
-                        style={{
-                          fontStyle: "italic",
-                          color: isToggled ? theme.textMuted : theme.accentText,
-                        }}
-                      >
-                        {change.replacement}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
-
-          {result?.analysis?.notes ? (
-            <div
-              style={{
-                fontSize: 12,
-                fontStyle: "italic",
-                color: theme.textMuted,
-                marginTop: 18,
-                lineHeight: 1.6,
-              }}
-            >
-              <span style={{ color: accent, marginRight: 4 }}>&#10022;</span>
-              {result.analysis.notes}
-            </div>
-          ) : null}
-
-          {result ? (
-            <div
-              className="lexis-legend"
-              style={{
-                position: "absolute",
-                bottom: 32,
-                left: 48,
-                display: "flex",
-                alignItems: "center",
-                gap: 16,
-                fontSize: 10,
-                color: theme.textFaint,
-                letterSpacing: "0.12em",
-              }}
-            >
-              <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                <span style={{ width: 16, height: 1.5, background: accent, display: "inline-block" }} />
-                changed
-              </span>
-              <span style={{ color: theme.border }}>&middot;</span>
-              <span>unchanged</span>
-            </div>
+            </p>
           ) : null}
 
           {error ? (
-            <div style={{ color: "#aa5050", fontSize: 13, marginTop: 16, fontStyle: "italic" }}>
-              {error}
+            <div className="lx-error" role="alert">
+              <p>{error.message}</p>
+              {error.code && KEY_ERROR_CODES.has(error.code) ? (
+                <button
+                  className="lx-link"
+                  onClick={() => {
+                    setKeysOpen(true);
+                    setSelectorOpen(false);
+                  }}
+                >
+                  Open keys
+                </button>
+              ) : null}
             </div>
           ) : null}
-        </div>
-      </div>
+
+          {sanitizedChanges.length > 0 && !editMode ? (
+            <aside className="lx-notes" aria-label="Margin notes">
+              <div className="lx-eyebrow">Margin notes</div>
+              <ol>
+                {sanitizedChanges.map((change, index) => {
+                  const isToggled = toggledChanges.has(change.key);
+                  const canToggle = change.resolvedStart !== null && change.resolvedEnd !== null;
+                  return (
+                    <li key={change.key}>
+                      <button
+                        className={"lx-note" + (isToggled ? " is-restored" : "")}
+                        disabled={!canToggle}
+                        title={canToggle ? (isToggled ? "Use the edit" : "Restore the original") : "Not found in proof"}
+                        onClick={() => toggleChange(change)}
+                      >
+                        <span className="lx-note-n">{index + 1}</span>
+                        <span className="lx-note-body">
+                          <span className="lx-note-swap">
+                            <s>{change.original}</s>
+                            <span aria-hidden> → </span>
+                            <em>{change.replacement}</em>
+                          </span>
+                          {change.reason ? <span className="lx-note-reason">{change.reason}</span> : null}
+                        </span>
+                        <span className="lx-note-state">{isToggled ? "stet" : ""}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </aside>
+          ) : null}
+
+          {result?.analysis?.notes && !editMode ? (
+            <p className="lx-editor-note">
+              <span className="lx-eyebrow">Editor's note</span>
+              {result.analysis.notes}
+            </p>
+          ) : null}
+        </section>
+      </main>
 
       {helpOpen ? (
-        <div
-          onClick={() => setHelpOpen(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 70,
-            background: d ? "rgba(8, 7, 5, 0.78)" : "rgba(32, 24, 16, 0.18)",
-            backdropFilter: "blur(6px)",
-            overflowY: "auto",
-            padding: 24,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
+        <div className="lx-scrim" onClick={() => setHelpOpen(false)}>
           <div
+            className="lx-guide"
+            role="dialog"
+            aria-modal="true"
+            aria-label="How to use Lexis"
             onClick={(event) => event.stopPropagation()}
-            style={{
-              width: "min(980px, calc(100vw - 48px))",
-              maxHeight: "calc(100vh - 48px)",
-              overflowY: "auto",
-              background: theme.modalBg,
-              border: modalOuterBorder,
-              boxShadow: d ? "0 30px 80px rgba(0,0,0,0.55)" : "0 20px 64px rgba(0,0,0,0.14)",
-              animation: "slideUp 0.18s ease",
-              flexShrink: 0,
-            }}
           >
-            <div style={{ padding: "28px 30px 26px", position: "relative" }}>
-              <button
-                onClick={() => setHelpOpen(false)}
-                style={{
-                  position: "absolute",
-                  top: 14,
-                  right: 16,
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  color: d ? "#907868" : "#b0a090",
-                  fontSize: 20,
-                  lineHeight: 1,
-                  padding: 4,
-                  transition: "color 0.15s",
-                  fontFamily: "inherit",
-                }}
-                onMouseEnter={(event) => {
-                  event.currentTarget.style.color = d ? "#d4a870" : "#6a5a4a";
-                }}
-                onMouseLeave={(event) => {
-                  event.currentTarget.style.color = d ? "#907868" : "#b0a090";
-                }}
-              >
-                &times;
-              </button>
+            <button className="lx-close" aria-label="Close guide" onClick={() => setHelpOpen(false)}>
+              ×
+            </button>
 
-              <div
-                style={{
-                  fontSize: 10,
-                  letterSpacing: "0.3em",
-                  textTransform: "uppercase",
-                  color: theme.label,
-                  marginBottom: 10,
-                }}
-              >
-                How to use Lexis
-              </div>
+            <div className="lx-eyebrow">How to use Lexis</div>
+            <h2 className="lx-guide-title">Type the draft. Read the proof. Keep what sings.</h2>
+            <p className="lx-guide-lede">
+              You write on the left. An editor returns a typeset proof on the right, every change marked in red
+              pencil and annotated in the margin. Restore, swap, or hand-correct any of it.
+            </p>
 
-              <div style={{ maxWidth: 700, margin: "0 auto 24px", textAlign: "center" }}>
-                <div
-                  style={{
-                    fontSize: 28,
-                    lineHeight: 1.2,
-                    color: theme.text,
-                    fontStyle: "italic",
-                    marginBottom: 10,
-                  }}
-                >
-                  Rewrite deliberately, review surgically.
+            <div className="lx-shortcuts">
+              {GUIDE_SHORTCUTS.map((shortcut) => (
+                <div key={shortcut.keys} className="lx-shortcut">
+                  <kbd>{shortcut.keys}</kbd>
+                  <span>{shortcut.action}</span>
                 </div>
-                <div
-                  style={{
-                    fontSize: 15,
-                    lineHeight: 1.75,
-                    color: theme.textMuted,
-                  }}
-                >
-                  Lexis is built for guided rewriting. You send source text from the left, inspect the rewritten version on the right, then refine it with change-level controls, variations, manual editing, and history.
-                </div>
-              </div>
+              ))}
+            </div>
 
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-                  gap: 12,
-                  marginBottom: 24,
-                }}
-              >
-                {GUIDE_SHORTCUTS.map((shortcut) => (
-                  <div
-                    key={shortcut.keys}
-                    style={{
-                      border: "1px solid " + theme.modalBorder,
-                      background: theme.hoverBg,
-                      padding: "14px 16px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 10,
-                        letterSpacing: "0.18em",
-                        textTransform: "uppercase",
-                        color: theme.accentText,
-                        marginBottom: 8,
-                      }}
-                    >
-                      {shortcut.keys}
-                    </div>
-                    <div style={{ fontSize: 14, lineHeight: 1.6, color: theme.text }}>
-                      {shortcut.action}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-                  gap: 14,
-                }}
-              >
-                {GUIDE_SECTIONS.map((section) => (
-                  <div
-                    key={section.title}
-                    style={{
-                      border: "1px solid " + theme.modalBorder,
-                      padding: "18px 18px 16px",
-                      background: d ? "rgba(255,255,255,0.01)" : "rgba(255,255,255,0.55)",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 9,
-                        letterSpacing: "0.22em",
-                        textTransform: "uppercase",
-                        color: theme.label,
-                        marginBottom: 8,
-                      }}
-                    >
-                      {section.eyebrow}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 21,
-                        lineHeight: 1.25,
-                        color: theme.text,
-                        fontStyle: "italic",
-                        marginBottom: 8,
-                      }}
-                    >
-                      {section.title}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 14,
-                        lineHeight: 1.7,
-                        color: theme.textMuted,
-                        marginBottom: 12,
-                      }}
-                    >
-                      {section.description}
-                    </div>
-                    <div style={{ display: "grid", gap: 8 }}>
-                      {section.bullets.map((bullet) => (
-                        <div
-                          key={bullet}
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "10px 1fr",
-                            gap: 10,
-                            alignItems: "start",
-                            fontSize: 13,
-                            lineHeight: 1.65,
-                            color: theme.text,
-                          }}
-                        >
-                          <span
-                            style={{
-                              width: 4,
-                              height: 4,
-                              borderRadius: "50%",
-                              background: accent,
-                              marginTop: 9,
-                              display: "inline-block",
-                            }}
-                          />
-                          <span>{bullet}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+            <div className="lx-guide-grid">
+              {GUIDE_SECTIONS.map((section) => (
+                <section key={section.title} className="lx-guide-section">
+                  <div className="lx-guide-numeral">{section.eyebrow}</div>
+                  <h3>{section.title}</h3>
+                  <p>{section.description}</p>
+                  <ul>
+                    {section.bullets.map((bullet) => (
+                      <li key={bullet}>{bullet}</li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
             </div>
           </div>
         </div>
@@ -2278,325 +1355,79 @@ function App() {
       {activeChange && modalPos ? (
         <div
           ref={modalRef}
+          className="lx-card"
+          role="dialog"
+          aria-label="Edit details"
           style={{
-            position: "fixed",
-            zIndex: 50,
-            width: 420,
-            maxWidth: "92vw",
-            maxHeight: "calc(100vh - 32px)",
-            overflowY: "auto",
-            background: theme.modalBg,
-            border: modalOuterBorder,
-            boxShadow: d ? "0 24px 60px rgba(0,0,0,0.6)" : "0 16px 48px rgba(0,0,0,0.12)",
             left: Math.max(16, Math.min(modalPos.x - 210, window.innerWidth - 436)),
             top: (() => {
-              const approxHeight = 480;
+              const approxHeight = 440;
               const fitsBelow = modalPos.y + approxHeight < window.innerHeight - 16;
-              return fitsBelow
-                ? modalPos.y
-                : Math.max(16, modalPos.yAbove - approxHeight);
+              return fitsBelow ? modalPos.y : Math.max(16, modalPos.yAbove - approxHeight);
             })(),
-            animation: "slideUp 0.18s ease",
           }}
         >
-          <div style={{ padding: "24px 28px 20px", position: "relative" }}>
+          <button
+            className="lx-close"
+            aria-label="Close"
+            onClick={() => {
+              setActiveChangeKey(null);
+              setModalPos(null);
+            }}
+          >
+            ×
+          </button>
+
+          <div className="lx-eyebrow">Mark {changeNumbers.get(activeChange.key)}</div>
+
+          <div className="lx-compare">
             <button
+              className={"lx-compare-side" + (activeIsToggled ? " is-chosen" : "")}
+              disabled={!activeCanToggle}
               onClick={() => {
-                setActiveChangeKey(null);
-                setModalPos(null);
-              }}
-              style={{
-                position: "absolute",
-                top: 12,
-                right: 14,
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: d ? "#907868" : "#b0a090",
-                fontSize: 18,
-                lineHeight: 1,
-                padding: 4,
-                transition: "color 0.15s",
-                fontFamily: "inherit",
-              }}
-              onMouseEnter={(event) => {
-                event.currentTarget.style.color = d ? "#d4a870" : "#6a5a4a";
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.color = d ? "#907868" : "#b0a090";
+                if (!activeIsToggled && activeCanToggle) toggleChange(activeChange);
               }}
             >
-              &times;
+              <span className="lx-eyebrow">Original</span>
+              <span className="lx-compare-text">{activeChange.original}</span>
             </button>
-
-            <div
-              style={{
-                fontSize: 10,
-                letterSpacing: "0.28em",
-                textTransform: "uppercase",
-                color: d ? "#907868" : "#b0a090",
-                marginBottom: 10,
+            <button
+              className={"lx-compare-side" + (!activeIsToggled ? " is-chosen" : "")}
+              disabled={!activeCanToggle}
+              onClick={() => {
+                if (activeIsToggled && activeCanToggle) toggleChange(activeChange);
               }}
             >
-              Replaced
-            </div>
+              <span className="lx-eyebrow">Edit</span>
+              <span className="lx-compare-text">{activeChange.replacement}</span>
+            </button>
+          </div>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 12,
-                marginBottom: 14,
-              }}
-            >
+          {activeChange.reason ? <p className="lx-card-reason">{activeChange.reason}</p> : null}
+
+          <div className="lx-card-variations">
+            <div className="lx-card-variations-head">
+              <span className="lx-eyebrow">Variations</span>
               <button
-                onClick={() => {
-                  if (
-                    !toggledChanges.has(activeChange.key) &&
-                    activeChange.resolvedStart !== null &&
-                    activeChange.resolvedEnd !== null
-                  ) {
-                    toggleChange(activeChange);
-                  }
-                }}
-                disabled={activeChange.resolvedStart === null || activeChange.resolvedEnd === null}
-                style={{
-                  background: toggledChanges.has(activeChange.key) ? theme.hoverBg : "transparent",
-                  border: "1px solid " + (toggledChanges.has(activeChange.key) ? accent : theme.modalBorder),
-                  color: toggledChanges.has(activeChange.key) ? (d ? "#d4a870" : "#8a5a20") : d ? "#a08878" : "#a09080",
-                  padding: "12px 14px",
-                  textAlign: "left",
-                  cursor:
-                    activeChange.resolvedStart === null || activeChange.resolvedEnd === null
-                      ? "default"
-                      : "pointer",
-                  opacity:
-                    activeChange.resolvedStart === null || activeChange.resolvedEnd === null
-                      ? 0.5
-                      : 1,
-                  transition: "border-color 0.15s, background 0.15s, color 0.15s",
-                  fontFamily: "inherit",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 9,
-                    letterSpacing: "0.18em",
-                    textTransform: "uppercase",
-                    color: toggledChanges.has(activeChange.key) ? theme.accentText : theme.textFaint,
-                    marginBottom: 8,
-                  }}
-                >
-                  Original
-                </div>
-                <div
-                  style={{
-                    fontFamily: "Palatino, serif",
-                    fontStyle: "italic",
-                    fontSize: 18,
-                    lineHeight: 1.45,
-                  }}
-                >
-                  {activeChange.original}
-                </div>
-              </button>
-
-              <button
-                onClick={() => {
-                  if (
-                    toggledChanges.has(activeChange.key) &&
-                    activeChange.resolvedStart !== null &&
-                    activeChange.resolvedEnd !== null
-                  ) {
-                    toggleChange(activeChange);
-                  }
-                }}
-                disabled={activeChange.resolvedStart === null || activeChange.resolvedEnd === null}
-                style={{
-                  background: toggledChanges.has(activeChange.key) ? "transparent" : theme.hoverBg,
-                  border: "1px solid " + (!toggledChanges.has(activeChange.key) ? accent : theme.modalBorder),
-                  color: toggledChanges.has(activeChange.key) ? (d ? "#a08878" : "#a09080") : d ? "#d4a870" : "#8a5a20",
-                  padding: "12px 14px",
-                  textAlign: "left",
-                  cursor:
-                    activeChange.resolvedStart === null || activeChange.resolvedEnd === null
-                      ? "default"
-                      : "pointer",
-                  opacity:
-                    activeChange.resolvedStart === null || activeChange.resolvedEnd === null
-                      ? 0.5
-                      : 1,
-                  transition: "border-color 0.15s, background 0.15s, color 0.15s",
-                  fontFamily: "inherit",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 9,
-                    letterSpacing: "0.18em",
-                    textTransform: "uppercase",
-                    color: toggledChanges.has(activeChange.key) ? theme.textFaint : theme.accentText,
-                    marginBottom: 8,
-                  }}
-                >
-                  Edited
-                </div>
-                <div
-                  style={{
-                    fontFamily: "Palatino, serif",
-                    fontStyle: "italic",
-                    fontSize: 18,
-                    lineHeight: 1.45,
-                  }}
-                >
-                  {activeChange.replacement}
-                </div>
-              </button>
-            </div>
-
-            <div
-              style={{
-                fontSize: 10,
-                textTransform: "uppercase",
-                letterSpacing: "0.18em",
-                color: theme.textFaint,
-                marginBottom: 12,
-              }}
-            >
-              {toggledChanges.has(activeChange.key) ? "Showing original wording" : "Showing edited wording"}
-            </div>
-
-            <div
-              style={{
-                width: "100%",
-                height: 1,
-                background: theme.modalBorder,
-                marginBottom: 12,
-              }}
-            />
-
-            <div
-              style={{
-                fontSize: 13,
-                lineHeight: 1.6,
-                color: d ? "#b8a48e" : "#6a5a48",
-              }}
-            >
-              {activeChange.reason}
-            </div>
-
-            <div
-              style={{
-                width: "100%",
-                height: 1,
-                background: theme.modalBorder,
-                margin: "16px 0 14px",
-              }}
-            />
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 10,
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 9,
-                  letterSpacing: "0.24em",
-                  textTransform: "uppercase",
-                  color: theme.label,
-                }}
-              >
-                Variations
-              </div>
-              <button
+                className="lx-link"
                 onClick={() => generateVariations(activeChange)}
                 disabled={varLoading}
-                style={{
-                  background: "none",
-                  border: "1px solid " + theme.modalBorder,
-                  color: varLoading ? theme.textFaint : theme.textMuted,
-                  padding: "4px 12px",
-                  fontSize: 9,
-                  letterSpacing: "0.18em",
-                  textTransform: "uppercase",
-                  cursor: varLoading ? "default" : "pointer",
-                  fontFamily: "inherit",
-                  transition: "border-color 0.15s, color 0.15s",
-                }}
-                onMouseEnter={(e) => {
-                  if (!varLoading) {
-                    e.currentTarget.style.borderColor = theme.textMuted;
-                    e.currentTarget.style.color = theme.text;
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = theme.modalBorder;
-                  e.currentTarget.style.color = varLoading ? theme.textFaint : theme.textMuted;
-                }}
               >
-                {varLoading && varChangeKey === activeChange.key ? "Generating…" : "Generate"}
+                {varLoading && varChangeKey === activeChange.key ? "Drafting…" : varOptions.length > 0 && varChangeKey === activeChange.key ? "Again" : "Draft four"}
               </button>
             </div>
 
             {varLoading && varChangeKey === activeChange.key ? (
-              <div style={{ display: "flex", gap: 5, paddingBottom: 4, alignItems: "center" }}>
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    style={{
-                      width: 4,
-                      height: 4,
-                      borderRadius: "50%",
-                      background: accent,
-                      animation: "pulse 1.2s ease-in-out infinite",
-                      animationDelay: i * 180 + "ms",
-                    }}
-                  />
-                ))}
-                <span
-                  style={{
-                    fontSize: 9,
-                    letterSpacing: "0.15em",
-                    textTransform: "uppercase",
-                    color: theme.textMuted,
-                    marginLeft: 4,
-                  }}
-                >
-                  generating
-                </span>
-              </div>
+              <p className="lx-meta lx-setting-small">
+                Drafting alternatives<span className="lx-cursor" aria-hidden />
+              </p>
+            ) : varError && varChangeKey === activeChange.key ? (
+              <p className="lx-card-error">{varError}</p>
             ) : varOptions.length > 0 && varChangeKey === activeChange.key ? (
-              <div style={{ display: "grid", gap: 6 }}>
+              <div className="lx-variations">
                 {varOptions.map((v, i) => (
-                  <button
-                    key={i}
-                    onClick={() => applyVariation(activeChange, v)}
-                    style={{
-                      background: "transparent",
-                      border: "1px solid " + theme.modalBorder,
-                      padding: "10px 14px",
-                      textAlign: "left",
-                      cursor: "pointer",
-                      fontFamily: "Palatino, serif",
-                      fontStyle: "italic",
-                      fontSize: 16,
-                      color: theme.accentText,
-                      lineHeight: 1.45,
-                      transition: "border-color 0.12s, background 0.12s",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = accent;
-                      e.currentTarget.style.background = theme.hoverBg;
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = theme.modalBorder;
-                      e.currentTarget.style.background = "transparent";
-                    }}
-                  >
+                  <button key={i} className="lx-variation" onClick={() => applyVariation(activeChange, v)}>
+                    <span className="lx-variation-n">{String.fromCharCode(97 + i)}</span>
                     {v}
                   </button>
                 ))}
@@ -2605,8 +1436,6 @@ function App() {
           </div>
         </div>
       ) : null}
-
-      <style dangerouslySetInnerHTML={{ __html: cssText }} />
     </div>
   );
 }
