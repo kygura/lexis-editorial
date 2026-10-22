@@ -76,7 +76,7 @@ DEFAULT_ANTHROPIC_MODEL=claude-opus-5-5
 
 Notes:
 
-- Available models: OpenAI `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-luna`; Anthropic `claude-opus-5-5`, `claude-fable-5-1`, `claude-sonnet-5-5`, `claude-haiku-5-5`.
+- Available models: OpenAI `gpt-6.1-sol`, `gpt-6-astra`, `gpt-5.6-terra`, `gpt-6-luna`; Anthropic `claude-opus-5-5`, `claude-fable-5-1`, `claude-sonnet-5-5`, `claude-haiku-5-5`.
 - The frontend can also send an API key directly per request from the browser.
 - Browser-entered keys are stored locally in local storage.
 - If no browser key is set, the backend falls back to environment variables.
@@ -128,6 +128,8 @@ Request body:
 `effort` is `low`, `medium` (default), or `high`. It maps to `reasoning_effort` on OpenAI and `output_config.effort` on Anthropic. Current models from both providers reject custom sampling temperature, so there is no temperature setting.
 
 On Claude Opus 5.5, Fable 5.1, and Sonnet 5.5, requests opt into server-side fallback (`fallbacks: "default"`), so a safety-classifier decline is retried on Anthropic's recommended model. A request that still ends in a refusal comes back as an error.
+
+Errors stream back as `{"error": "...", "code": "..."}`. Codes include `missing_key`, `invalid_key`, `key_mismatch` (an Anthropic key sent to an OpenAI model, or the reverse), `permission`, `quota`, `rate_limit`, `model_not_found` and `connection`. Messages are written for the user and never echo the key.
 
 ### `POST /variations`
 

@@ -21,6 +21,7 @@ const MODEL_OPTIONS = {
   openai: [
     { value: "gpt-6.1-sol", label: "GPT-6.1 Sol", note: "Flagship. Balanced, quick, exacting." },
     { value: "gpt-6-astra", label: "GPT-6 Astra", note: "Deepest reasoning. Slow, meticulous." },
+    { value: "gpt-5.6-terra", label: "GPT-5.6 Terra", note: "Even-handed, between Sol and Luna." },
     { value: "gpt-6-luna", label: "GPT-6 Luna", note: "Light and fast for short passages." },
   ],
   anthropic: [
@@ -145,6 +146,34 @@ interface AnalysisResult {
   analysis: Analysis;
   rewrite: string;
   changes: RawChange[];
+}
+
+interface LexisError {
+  message: string;
+  code?: string;
+}
+
+// Errors the writer fixes from the Keys panel.
+const KEY_ERROR_CODES = new Set(["missing_key", "invalid_key", "key_mismatch", "permission", "quota"]);
+
+class ApiError extends Error {
+  code?: string;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+function toLexisError(caught: unknown, fallback: string): LexisError {
+  if (caught instanceof ApiError) return { message: caught.message, code: caught.code };
+  // fetch() rejects with a TypeError when the Lexis server can't be reached.
+  if (caught instanceof TypeError) {
+    return { message: "Couldn't reach the Lexis server. Check that the backend is running.", code: "server_unreachable" };
+  }
+  if (caught instanceof SyntaxError) {
+    return { message: "The editor's reply came back garbled. Send again.", code: "bad_response" };
+  }
+  return { message: fallback };
 }
 
 interface Segment {
@@ -395,7 +424,9 @@ function App() {
   const [streamPreview, setStreamPreview] = useState("");
   const [activeChangeKey, setActiveChangeKey] = useState<string | null>(null);
   const [modalPos, setModalPos] = useState<{ x: number; y: number; yAbove: number } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<LexisError | null>(null);
+  const [varError, setVarError] = useState<string | null>(null);
+  const [sentPulse, setSentPulse] = useState(false);
   const [dark, setDark] = useState(() => readStorage(STORAGE_KEYS.theme) === "dark");
   const [copied, setCopied] = useState(false);
   const [toggledChanges, setToggledChanges] = useState<Set<string>>(new Set());
@@ -591,12 +622,8 @@ function App() {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error("Analysis failed. Try again.");
-      }
-
-      if (!response.body) {
-        throw new Error("Analysis failed. Try again.");
+      if (!response.ok || !response.body) {
+        throw new ApiError(`The Lexis server returned an error (${response.status}). Try again.`, "server");
       }
 
       const reader = response.body.getReader();
@@ -619,13 +646,13 @@ function App() {
           try {
             const parsed = JSON.parse(data);
             if (parsed.error) {
-              throw new Error(parsed.error);
+              throw new ApiError(parsed.error, parsed.code);
             }
             if (parsed.text) {
               fullText += parsed.text;
             }
           } catch (parseError) {
-            if (parseError instanceof Error) {
+            if (parseError instanceof ApiError) {
               throw parseError;
             }
           }
@@ -649,7 +676,7 @@ function App() {
       if (caughtError instanceof Error && caughtError.name === "AbortError") return;
       if (requestId !== requestSequenceRef.current) return;
       lastCompletedKeyRef.current = "";
-      setError(caughtError instanceof Error ? caughtError.message : "Analysis failed. Try again.");
+      setError(toLexisError(caughtError, "The rewrite failed. Try again."));
     } finally {
       if (requestId === requestSequenceRef.current) {
         setStreaming(false);
@@ -671,6 +698,9 @@ function App() {
     effortRef.current = effort;
     apiKeyRef.current = providerApiKeys[selectedProvider].trim();
 
+    // Restart the carriage-return bump even if the last one is still playing.
+    setSentPulse(false);
+    requestAnimationFrame(() => setSentPulse(true));
     void analyze(trimmedInput, true);
   }, [analyze, effort, input, providerApiKeys, selectedModel, selectedProvider, styleDirective]);
 
@@ -795,6 +825,7 @@ function App() {
     if (!result) return;
     setVarLoading(true);
     setVarOptions([]);
+    setVarError(null);
     setVarChangeKey(change.key);
     if (varAbortRef.current) varAbortRef.current.abort();
     const controller = new AbortController();
@@ -816,7 +847,9 @@ function App() {
           api_key: apiKeyRef.current || undefined,
         }),
       });
-      if (!response.ok || !response.body) throw new Error("Variations request failed");
+      if (!response.ok || !response.body) {
+        throw new ApiError(`The Lexis server returned an error (${response.status}). Try again.`, "server");
+      }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let lineBuffer = "";
@@ -833,7 +866,7 @@ function App() {
           if (data === "[DONE]") continue;
           let parsed: { text?: string; error?: string } | null = null;
           try { parsed = JSON.parse(data); } catch { continue; }
-          if (parsed?.error) throw new Error(parsed.error);
+          if (parsed?.error) throw new ApiError(parsed.error, (parsed as { code?: string }).code);
           if (parsed?.text) fullText += parsed.text;
         }
       }
@@ -843,6 +876,7 @@ function App() {
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
       setVarOptions([]);
+      setVarError(toLexisError(err, "Couldn't draft variations. Try again.").message);
     } finally {
       setVarLoading(false);
     }
@@ -1037,6 +1071,7 @@ function App() {
                     </span>
                     <input
                       type="password"
+                      autoFocus={provider === selectedProvider}
                       className="lx-input"
                       value={providerApiKeys[provider]}
                       onChange={(event) => handleProviderApiKeyChange(provider, event.target.value)}
@@ -1055,7 +1090,13 @@ function App() {
       </header>
 
       <main className="lx-desk">
-        <section className="lx-sheet lx-manuscript" aria-label="Manuscript">
+        <section
+          className={"lx-sheet lx-manuscript" + (sentPulse ? " is-sent" : "")}
+          aria-label="Manuscript"
+          onAnimationEnd={(event) => {
+            if (event.target === event.currentTarget) setSentPulse(false);
+          }}
+        >
           <div className="lx-sheet-head">
             <span className="lx-eyebrow">Manuscript</span>
             <span className="lx-meta">{input.length > 0 ? `${wordCount} words` : "Draft"}</span>
@@ -1205,7 +1246,22 @@ function App() {
             </p>
           ) : null}
 
-          {error ? <p className="lx-error">{error}</p> : null}
+          {error ? (
+            <div className="lx-error" role="alert">
+              <p>{error.message}</p>
+              {error.code && KEY_ERROR_CODES.has(error.code) ? (
+                <button
+                  className="lx-link"
+                  onClick={() => {
+                    setKeysOpen(true);
+                    setSelectorOpen(false);
+                  }}
+                >
+                  Open keys
+                </button>
+              ) : null}
+            </div>
+          ) : null}
 
           {sanitizedChanges.length > 0 && !editMode ? (
             <aside className="lx-notes" aria-label="Margin notes">
@@ -1365,6 +1421,8 @@ function App() {
               <p className="lx-meta lx-setting-small">
                 Drafting alternatives<span className="lx-cursor" aria-hidden />
               </p>
+            ) : varError && varChangeKey === activeChange.key ? (
+              <p className="lx-card-error">{varError}</p>
             ) : varOptions.length > 0 && varChangeKey === activeChange.key ? (
               <div className="lx-variations">
                 {varOptions.map((v, i) => (

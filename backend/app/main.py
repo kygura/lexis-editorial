@@ -3,6 +3,8 @@ import os
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 
+import anthropic
+import openai
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -117,19 +119,51 @@ def resolve_default_model(provider: str) -> str:
     return os.getenv(config.default_model_env, os.getenv("DEFAULT_MODEL", config.fallback_model))
 
 
+PROVIDER_LABELS = {"openai": "OpenAI", "anthropic": "Anthropic"}
+
+
+class LexisError(Exception):
+    """An error with a message written for the person using Lexis."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def guess_key_provider(api_key: str) -> str | None:
+    if api_key.startswith("sk-ant-"):
+        return "anthropic"
+    if api_key.startswith("sk-"):
+        return "openai"
+    return None
+
+
 def resolve_provider_settings(payload: AnalyzeRequest) -> tuple[str, str, str]:
     provider = (payload.provider or resolve_default_provider()).strip().lower()
     if provider not in PROVIDER_REGISTRY:
-        raise ValueError(f"Unsupported provider: {provider}")
+        raise LexisError("bad_request", f"Unsupported provider: {provider}")
 
     config = PROVIDER_REGISTRY[provider]
+    label = PROVIDER_LABELS[provider]
     api_key = (payload.api_key or "").strip() or os.getenv(config.api_key_env, "").strip()
     if not api_key:
-        raise ValueError(f"Missing API key for provider '{provider}'")
+        raise LexisError(
+            "missing_key",
+            f"No {label} API key is set. Add one under Keys, or set {config.api_key_env} on the server.",
+        )
+
+    key_provider = guess_key_provider(api_key)
+    if key_provider and key_provider != provider:
+        raise LexisError(
+            "key_mismatch",
+            f"That looks like an {PROVIDER_LABELS[key_provider]} key, but you've picked an {label} model. "
+            f"Paste an {label} key under Keys, or switch to an {PROVIDER_LABELS[key_provider]} model.",
+        )
 
     model = (payload.model or "").strip() or resolve_default_model(provider)
     if not model:
-        raise ValueError(f"Missing model for provider '{provider}'")
+        raise LexisError("bad_request", f"No model is set for {label}. Pick one from the editor list.")
 
     return provider, model, api_key
 
@@ -153,6 +187,44 @@ def resolve_effort(effort: str | None) -> str:
     # reasoning effort is the shared dial for how hard the model works a passage.
     value = (effort or "").strip().lower()
     return value if value in EFFORT_LEVELS else DEFAULT_EFFORT
+
+
+def describe_error(exc: Exception, provider: str | None, model: str | None) -> dict[str, str]:
+    # Provider SDK errors echo raw JSON and a masked key; translate them into
+    # something the writer can act on.
+    if isinstance(exc, LexisError):
+        return {"error": exc.message, "code": exc.code}
+
+    label = PROVIDER_LABELS.get(provider or "", "The provider")
+    if isinstance(exc, (openai.AuthenticationError, anthropic.AuthenticationError)):
+        return {
+            "error": f"{label} rejected the API key. It may be mistyped, revoked, or from another account. Check it under Keys.",
+            "code": "invalid_key",
+        }
+    if isinstance(exc, (openai.PermissionDeniedError, anthropic.PermissionDeniedError)):
+        return {
+            "error": f"This {label} key doesn't have access to {model or 'this model'}. Check the key's project permissions, or pick another model.",
+            "code": "permission",
+        }
+    if isinstance(exc, (openai.NotFoundError, anthropic.NotFoundError)):
+        return {
+            "error": f"{label} doesn't offer the model \u201c{model}\u201d to this key. Pick another model.",
+            "code": "model_not_found",
+        }
+    if isinstance(exc, (openai.RateLimitError, anthropic.RateLimitError)):
+        if getattr(exc, "code", None) == "insufficient_quota":
+            return {
+                "error": f"This {label} account is out of credit. Add billing on the provider's dashboard, or use another key.",
+                "code": "quota",
+            }
+        return {"error": f"{label} is rate-limiting this key. Wait a moment and send again.", "code": "rate_limit"}
+    if isinstance(exc, (openai.APIConnectionError, anthropic.APIConnectionError)):
+        return {"error": f"Couldn't reach {label}. Check the server's network and try again.", "code": "connection"}
+    if isinstance(exc, (openai.APIStatusError, anthropic.APIStatusError)):
+        return {"error": f"{label} returned an error ({exc.status_code}). Try again in a moment.", "code": "provider"}
+    if isinstance(exc, RuntimeError):
+        return {"error": str(exc), "code": "provider"}
+    return {"error": "Something went wrong while rewriting. Try again.", "code": "unknown"}
 
 
 def is_model_unavailable_error(exc: Exception) -> bool:
@@ -288,6 +360,8 @@ async def variations(payload: VariationsRequest):
     )
 
     async def stream_response():
+        provider: str | None = payload.provider
+        model: str | None = payload.model
         try:
             provider, model, api_key = resolve_provider_settings(
                 AnalyzeRequest(
@@ -324,7 +398,7 @@ async def variations(payload: VariationsRequest):
             if last_error is not None:
                 raise last_error
         except Exception as exc:
-            yield sse_payload({"error": str(exc)})
+            yield sse_payload(describe_error(exc, provider, model))
 
     return StreamingResponse(
         stream_response(),
@@ -350,6 +424,8 @@ async def analyze(payload: AnalyzeRequest):
     user_prompt = f'\n\n"{text}"'
 
     async def stream_response():
+        provider: str | None = payload.provider
+        model: str | None = payload.model
         try:
             provider, model, api_key = resolve_provider_settings(payload)
             effort = resolve_effort(payload.effort)
@@ -378,7 +454,7 @@ async def analyze(payload: AnalyzeRequest):
             if last_error is not None:
                 raise last_error
         except Exception as exc:  # pragma: no cover - surfaced to client
-            yield sse_payload({"error": str(exc)})
+            yield sse_payload(describe_error(exc, provider, model))
 
     return StreamingResponse(
         stream_response(),
