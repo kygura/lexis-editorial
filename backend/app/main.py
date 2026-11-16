@@ -17,6 +17,15 @@ load_dotenv()
 
 app = FastAPI()
 
+
+@app.middleware("http")
+async def strip_api_prefix(request, call_next):
+    # On Vercel the frontend calls the backend under /api; the routes live at /.
+    path = request.scope["path"]
+    if path == "/api" or path.startswith("/api/"):
+        request.scope["path"] = path[4:] or "/"
+    return await call_next(request)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
