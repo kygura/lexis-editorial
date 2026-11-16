@@ -6,19 +6,21 @@
     },
     "api": {
       "root": "backend/",
-      "entrypoint": "app.main:app",
-      "routes": [
-        {
-          "src": "/api/(.*)",
-          "transforms": [
-            { "type": "request.path", "op": "set", "args": "/$1" }
-          ]
-        }
-      ]
+      "entrypoint": "app.main:app"
     }
   },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": { "service": "api" } },
-    { "source": "/(.*)", "destination": { "service": "web" } }
+    {
+      "source": "/api/(.*)",
+      "destination": {
+        "service": "api"
+      }
+    },
+    {
+      "source": "/(.*)",
+      "destination": {
+        "service": "web"
+      }
+    }
   ]
 }
